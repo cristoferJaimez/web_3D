@@ -570,9 +570,10 @@
     };
     paintSpin();
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 1.1));
-    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
-    const d1 = new THREE.DirectionalLight(0xffffff, 1.1);
+    // luz moderada para que los colores del filamento se vean fieles (gris ≠ blanco)
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 0.7));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.12));
+    const d1 = new THREE.DirectionalLight(0xffffff, 0.75);
     d1.position.set(1, 2, 1.5);
     scene.add(d1);
     const d2 = new THREE.DirectionalLight(0x7c5cff, 0.5);
@@ -1222,6 +1223,7 @@
       if (src.length > 1) j = Math.max(0, src.findIndex((pc) => hit.faceIndex >= pc.start && hit.faceIndex < pc.start + pc.count));
       if (!pieces.length) return;
       state.pieceColors[`${i}:${j}`] = state.color;
+      renderSwatches();
       update();
     });
   }
@@ -1832,11 +1834,18 @@
       s.style.background = c.hex;
       s.title = c.nombre + (c.recargo ? ` (+${Math.round(c.recargo * 100)}%)` : "");
       if (c.recargo) s.dataset.extra = "";
-      s.onclick = () => { state.color = i; renderSwatches(); update(); };
+      s.onclick = () => {
+        state.color = i;
+        // multicolor sin piezas pintadas todavía: el color elegido se aplica a todo el modelo
+        if (state.acabado === "multi" && !Object.keys(state.pieceColors).length) state.baseColor = i;
+        renderSwatches();
+        update();
+      };
       return s;
     }));
     const c = cols[state.color];
-    $("#color-name").textContent = c.nombre + (c.recargo ? ` · +${Math.round(c.recargo * 100)}%` : "");
+    const painting = state.acabado === "multi" && Object.keys(state.pieceColors).length > 0;
+    $("#color-name").textContent = (painting ? "🖌 Pincel: " : "") + c.nombre + (c.recargo ? ` · +${Math.round(c.recargo * 100)}%` : "");
   }
 
   const FINISH = { uno: "Un color", multi: "Multicolor (por pieza)", pintado: "Pintado a mano" };
@@ -1924,6 +1933,7 @@
       const sel = e.target.closest(".piece-color");
       if (!sel) return;
       state.pieceColors[sel.dataset.key] = +sel.value;
+      renderSwatches();
       update();
     });
     initPainting();
