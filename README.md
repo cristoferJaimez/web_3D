@@ -39,17 +39,19 @@ pero no es secreta: cualquiera que conozca la dirección puede verla.
 
 ## Recibir los archivos de los pedidos en tu Google Drive
 
-WhatsApp no permite que una página adjunte archivos. Para que el STL/3MF del cliente te llegue solo:
+WhatsApp no permite que una página adjunte archivos. Con este script, el STL/3MF del cliente
+se guarda solo en tu Drive (usa el espacio de tu cuenta de Gmail, 15 GB gratis).
 
-1. Entra a https://script.google.com con tu cuenta → **Nuevo proyecto**.
-2. Borra lo que aparece y pega todo el contenido de `apps-script/Code.gs`. Guarda.
+1. En una **ventana privada** (Ctrl + Shift + P), entra a https://script.google.com solo con tu cuenta → **Nuevo proyecto**.
+2. Ponle nombre "HHH3D Pedidos", borra lo que aparece, pega todo `apps-script/Code.gs` y guarda.
 3. **Implementar → Nueva implementación → Aplicación web**. Ejecutar como: **Yo**. Acceso: **Cualquier usuario**.
-4. Autoriza el acceso (Configuración avanzada → Ir al proyecto) y copia la **URL de la aplicación web** (termina en `/exec`).
+4. Autoriza (Configuración avanzada → Ir al proyecto → Permitir) y copia la URL que termina en `/exec`.
 5. Pégala en `config.js` → `subida.url` y sube el cambio.
+6. Opcional: en el editor elige la función `activarLimpieza` y pulsa ▶ Ejecutar (borra pedidos de más de 90 días).
 
-Cada pedido llega como un `.zip` (archivos del cliente + `pedido.txt`) en la carpeta **HHH3D - Pedidos** de tu Drive,
-y el mensaje de WhatsApp trae el enlace. Los archivos no se comparten: solo tu cuenta puede abrirlos.
-Mientras `subida.url` esté vacío, la página le pide al cliente adjuntar el archivo en el chat.
+Orden en Drive: `HHH3D - Pedidos / 2026-10 / 20261022-1530-nombre.zip` (archivos + `pedido.txt`).
+Cada pedido te llega también por correo con el resumen y el enlace. Los archivos no se comparten.
+Si cambias el código del script: Implementar → Gestionar implementaciones → editar → Versión nueva (la URL no cambia).
 
 ## Precios automáticos
 
