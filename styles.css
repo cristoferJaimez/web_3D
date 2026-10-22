@@ -762,3 +762,21 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
     max-height: calc(100vh - 150px); width: 100%; object-fit: contain;
   }
 }
+
+/* ---------- detalle del pedido consultado ---------- */
+.q-result.ok { display: flex; flex-direction: column; gap: .9rem; }
+.q-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; font-size: .9rem; }
+.q-head .mono { font-weight: 600; }
+.q-steps { list-style: none; display: grid; grid-template-columns: repeat(5, 1fr); gap: .3rem; margin: 0; padding: 0; }
+.q-steps li { display: flex; flex-direction: column; gap: .4rem; font-size: .75rem; color: var(--muted); }
+.q-steps li span { height: 6px; border-radius: 3px; background: var(--line); }
+.q-steps li.done span { background: var(--accent-2); }
+.q-steps li.now span { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.q-steps li.now { color: var(--text); font-weight: 700; }
+.q-msg { margin: 0; }
+.q-detail { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .6rem 1.2rem; margin: 0; padding-top: .8rem; border-top: 1px solid var(--line); }
+.q-detail div { min-width: 0; }
+.q-detail dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.q-detail dd { margin: .15rem 0 0; font-size: .92rem; overflow-wrap: anywhere; }
+.q-detail .debe { color: var(--warn); }
+@media (max-width: 520px) { .q-steps li { font-size: .62rem; } }

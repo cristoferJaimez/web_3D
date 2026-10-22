@@ -2325,40 +2325,75 @@
   }
 
   // Consulta de un pedido por su número (el que llega en el mensaje de WhatsApp)
+  const PASOS = ["Cotización", "En proceso", "Imprimiendo", "Listo", "Entregado"];
+  const esc = (t) => String(t).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+
   function trackOrder(raw) {
     const box = $("#q-result");
     const id = raw.trim().toUpperCase();
     box.hidden = !id;
-    if (!id) return;
-    if (!queue.ok) {
-      box.className = "q-result warn";
-      box.textContent = "No pudimos consultar la cola en este momento. Escríbenos por WhatsApp.";
-      return;
-    }
-    const i = queue.cola.findIndex((p) => p.id.toUpperCase() === id);
-    if (i < 0) {
-      box.className = "q-result warn";
-      box.innerHTML = `No encontramos <b>${id.replace(/[<>&"]/g, "")}</b> en la cola. Puede que aún esté en cotización (confírmalo por WhatsApp) o que ya lo hayamos entregado.`;
-      return;
-    }
-    const p = queue.cola[i];
+    if (!id) return Promise.resolve();
+    box.className = "q-result";
+    box.textContent = "Consultando…";
+    return fetch(`${C.subida.url}?id=${encodeURIComponent(id)}&t=${Date.now()}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.ok || !d.pedido) {
+          box.className = "q-result warn";
+          box.innerHTML = `No encontramos el pedido <b>${esc(id)}</b>. Revisa el número que te llegó en el mensaje de WhatsApp o escríbenos.`;
+          return;
+        }
+        renderOrder(d.pedido);
+      })
+      .catch(() => {
+        box.className = "q-result warn";
+        box.textContent = "No pudimos consultar en este momento. Escríbenos por WhatsApp.";
+      });
+  }
+
+  function renderOrder(p) {
+    const box = $("#q-result");
     const P = C.produccion;
-    let msg;
-    if (p.estado === "Imprimiendo") {
-      msg = `🖨 <b>¡Se está imprimiendo!</b> ${p.placas} ${p.placas === 1 ? "placa" : "placas"} · ~${fmtTime(p.horas || 0)} de impresión.`;
-    } else if (p.estado === "Listo") {
-      msg = `📦 <b>¡Tu pedido está listo!</b> Escríbenos por WhatsApp para coordinar la entrega.`;
-    } else {
-      const antes = queue.cola.slice(0, i).filter((o) => o.estado !== "Listo");
-      const turno = antes.length + 1;
+    const paso = PASOS.indexOf(p.estado);
+    const cerrado = p.estado === "No concretado";
+
+    // mensaje según el estado (con el turno en la cola si está esperando)
+    let msg = "";
+    if (p.estado === "Cotización") msg = "📝 <b>Recibimos tu cotización.</b> Confírmala por WhatsApp para que entre a la cola de impresión.";
+    else if (p.estado === "En proceso") {
+      const i = queue.cola.findIndex((o) => o.id.toUpperCase() === p.id.toUpperCase());
+      const antes = i > 0 ? queue.cola.slice(0, i).filter((o) => o.estado !== "Listo") : [];
       const h = antes.reduce((a, o) => a + (o.horas || 0), 0) * (1 + P.margen_fallas);
       const dias = Math.ceil(h / P.horas_por_dia);
-      msg = `⏳ <b>Confirmado, en cola.</b> Eres el turno <b>${turno}</b>` +
-        (turno > 1 ? ` (hay ${turno - 1} ${turno === 2 ? "pedido" : "pedidos"} antes del tuyo)` : "") +
-        `. Empieza a imprimirse ${h <= 0 ? "hoy" : dias <= 1 ? "mañana" : `en unos ${dias} días`}.`;
-    }
+      msg = `⏳ <b>Confirmado, en cola.</b> Eres el turno <b>${antes.length + 1}</b>. Empieza a imprimirse ${h <= 0 ? "hoy" : dias <= 1 ? "mañana" : `en unos ${dias} días`}.`;
+    } else if (p.estado === "Imprimiendo") msg = `🖨 <b>¡Se está imprimiendo!</b> ~${fmtTime(p.horas)} de impresión en total.`;
+    else if (p.estado === "Listo") msg = p.tipoEntrega && !/taller/i.test(p.tipoEntrega)
+      ? "📦 <b>¡Tu pedido está listo!</b> Lo estamos preparando para el envío."
+      : "📦 <b>¡Tu pedido está listo!</b> Escríbenos por WhatsApp para coordinar la entrega.";
+    else if (p.estado === "Entregado") msg = "✅ <b>Pedido entregado.</b> ¡Gracias por confiar en nosotros!";
+    else if (cerrado) msg = "Esta cotización no se concretó. Si quieres retomarla, escríbenos por WhatsApp.";
+
+    const timeline = cerrado ? "" : `<ol class="q-steps">${PASOS.map((s, i) =>
+      `<li class="${i < paso ? "done" : i === paso ? "now" : ""}"><span></span>${s}</li>`).join("")}</ol>`;
+    const fecha = (iso) => (iso ? fmtDay(new Date(iso)) : "—");
+    const row = (k, v) => (v ? `<div><dt>${k}</dt><dd>${v}</dd></div>` : "");
+    const entregaTxt = [p.tipoEntrega || "Por definir", p.ciudad].filter(Boolean).map(esc).join(" · ");
+
     box.className = "q-result ok";
-    box.innerHTML = `<span class="mono">${p.id}</span> · ${p.material || ""}<br>${msg}`;
+    box.innerHTML = `
+      <div class="q-head"><span class="mono">${esc(p.id)}</span>${p.cliente ? `<span>Hola, ${esc(p.cliente.charAt(0).toUpperCase() + p.cliente.slice(1).toLowerCase())} 👋</span>` : ""}</div>
+      ${timeline}
+      <p class="q-msg">${msg}</p>
+      <dl class="q-detail">
+        ${row("Tu pedido", esc(p.archivos))}
+        ${row("Material", esc(p.material))}
+        ${row("Impresión", `${p.placas} ${p.placas === 1 ? "placa" : "placas"} · ${fmtG(p.peso)} · ~${fmtTime(p.horas)}`)}
+        ${row("Entrega", entregaTxt)}
+        ${row(p.estado === "Entregado" ? "Entregado" : "Entrega estimada", p.estado === "Entregado" ? "Sí" : fecha(p.entrega))}
+        ${row("Cotizado el", fecha(p.fecha))}
+        ${row("Total", money(p.total))}
+        ${p.estado !== "Cotización" ? row("Abonado", money(p.abonado)) + row("Saldo pendiente", p.saldo > 0 ? `<b class="debe">${money(p.saldo)}</b>` : "Pagado ✓") : ""}
+      </dl>`;
   }
 
   // Datos del pedido para la hoja de control (Google Sheets, ver apps-script/Code.gs)
@@ -3028,6 +3063,7 @@
   loadDailyPrices().then(renderPrices).then(loadTRM).then(renderPrices);
   renderQueue();
   loadQueue();
+  try { const ult = localStorage.getItem("mi_pedido"); if (ult) $("#q-id").value = ult; } catch (e) { /* sin almacenamiento */ }
   // al consultar, se pide la cola fresca (por si acabas de cambiar el estado en la hoja)
   $("#q-track").onsubmit = (e) => {
     e.preventDefault();
@@ -3036,6 +3072,7 @@
     box.className = "q-result";
     box.textContent = "Consultando…";
     loadQueue().then(() => trackOrder($("#q-id").value));
+    try { localStorage.setItem("mi_pedido", $("#q-id").value.trim()); } catch (err) { /* sin almacenamiento */ }
   };
   setInterval(loadQueue, 2 * 60 * 1000); // refrescar la cola cada 2 minutos
 })();

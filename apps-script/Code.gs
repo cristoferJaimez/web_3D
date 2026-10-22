@@ -39,7 +39,8 @@ function doPost(e) {
 }
 
 /* ---------- cola pública para la página (sin nombres, celulares ni precios) ---------- */
-function doGet() {
+function doGet(e) {
+  if (e && e.parameter && e.parameter.id) return json(detallePedido(e.parameter.id));
   const cache = CacheService.getScriptCache();
   const hit = cache.get("cola");
   if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
@@ -64,6 +65,30 @@ function doGet() {
   const out = JSON.stringify({ ok: true, cola, horasPendientes: Math.round(horas * 10) / 10, entregados14: entregados });
   cache.put("cola", out, 60); // 1 minuto (y se borra al editar la hoja: ver activarActualizacion)
   return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
+}
+
+/* Detalle de UN pedido para quien tiene su número (sin celular ni dirección completa). */
+function detallePedido(idRaw) {
+  const id = String(idRaw).trim().toUpperCase().slice(0, 40);
+  if (!/^HHH-[0-9A-Z-]+$/.test(id)) return { ok: false, error: "número inválido" };
+  const sh = libro().getSheetByName("Pedidos");
+  const n = sh.getLastRow() - 1;
+  if (n < 1) return { ok: true, pedido: null };
+  const ids = sh.getRange(2, 1, n, 1).getValues();
+  const i = ids.findIndex(([v]) => String(v).toUpperCase() === id);
+  if (i < 0) return { ok: true, pedido: null };
+  const f = sh.getRange(i + 2, 1, 1, COLUMNAS.length).getValues()[0];
+  const fecha = (v) => (v instanceof Date ? v.toISOString() : "");
+  return {
+    ok: true,
+    pedido: {
+      id: String(f[0]), fecha: fecha(f[1]), cliente: String(f[3] || "").split(" ")[0],
+      archivos: String(f[5] || ""), material: String(f[7] || ""), placas: Number(f[8]) || 0,
+      peso: Number(f[9]) || 0, horas: Number(f[10]) || 0, total: Number(f[12]) || 0,
+      estado: String(f[14] || ""), abonado: Number(f[15]) || 0, saldo: Number(f[16]) || 0,
+      entrega: fecha(f[17]), tipoEntrega: String(f[29] || ""), ciudad: String(f[30] || ""),
+    },
+  };
 }
 
 /* ---------- archivo del cliente (.zip) ---------- */
