@@ -599,9 +599,8 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 .viewer { max-height: calc(100vh - 200px); min-height: 320px; }
 .mat .mat-note { color: var(--warn); font-size: .82rem; margin-top: -.4rem; }
 
-/* materiales centrados: tarjetas de ancho fijo en una fila que se centra */
-.materials { grid-template-columns: repeat(auto-fit, minmax(240px, 300px)); justify-content: center; }
-#materiales .section-head { text-align: center; }
+/* materiales: las tarjetas llenan el ancho, alineadas con el resto de secciones */
+.materials { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 @media (max-width: 600px) { .materials { grid-template-columns: 1fr; } }
 
 /* ---------- datos del cliente ---------- */
