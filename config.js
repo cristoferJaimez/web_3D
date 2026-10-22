@@ -182,6 +182,22 @@ window.CONFIG = {
         { nombre: "Rojo", hex: "#d7263d", recargo: 0 },
       ],
     },
+    ASA: {
+      temp_boquilla: 260, temp_cama: 100,
+      nombre: "ASA", densidad: 1.07, precio_kg: 115000, importado: true,
+      fuentes: [],
+      busqueda_ml: "filamento asa 1kg 1.75",
+      desc: "Resiste sol, lluvia y calor sin decolorarse. Piezas para exteriores y carro.",
+      // La A1 es abierta: el ASA se contrae y se despega en piezas grandes
+      nota: "En nuestra Bambu Lab A1 (abierta) solo imprimimos piezas pequeñas en ASA, de hasta 10 cm.",
+      max_cm: 10,
+      props: { resistencia: 4, flexibilidad: 2, temperatura: 5, detalle: 3 },
+      colores: [
+        { nombre: "Negro", hex: "#1b1b1f", recargo: 0 },
+        { nombre: "Blanco", hex: "#f2f2ee", recargo: 0 },
+        { nombre: "Gris", hex: "#8a8d93", recargo: 0 },
+      ],
+    },
   },
 
   /* Catálogo / tus trabajos.

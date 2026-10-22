@@ -1712,8 +1712,12 @@
     $("#dims").title = "Ancho × fondo × alto";
 
     const [vx, vy, vz] = C.maquina.volumen_mm;
+    const matSel = C.materiales[state.mat];
+    const grande = matSel.max_cm && Math.max(...dims) / 10 > matSel.max_cm;
     const sobreAms = C.multicolor.ams ? r.parts.filter((p) => p.r.colors > C.multicolor.max_colores) : [];
-    if (sobreAms.length) {
+    if (grande) {
+      showWarn(`⚠ Tu pieza mide ${cm(Math.max(...dims))} cm. ${matSel.nota} Elige otro material (PETG resiste exteriores) o reduce el tamaño.`);
+    } else if (sobreAms.length) {
       const n = sobreAms.map((p) => p.label || r.parts.indexOf(p) + 1).join(", ");
       showWarn(`⚠ La placa ${n} tiene más de ${C.multicolor.max_colores} colores y el AMS lite solo carga ${C.multicolor.max_colores}. Usa máximo ${C.multicolor.max_colores} colores por placa.`);
     } else if (state.fit === "ajustar" && maxScale() < 100) {
@@ -1854,7 +1858,8 @@
     box.replaceChildren(...Object.entries(C.materiales).map(([k, m]) =>
       chip(m.nombre, k === state.mat, () => { state.mat = k; state.color = 0; state.pieceColors = {}; renderMaterials(); update(); })
     ));
-    $("#mat-desc").textContent = C.materiales[state.mat].desc;
+    const md = C.materiales[state.mat];
+    $("#mat-desc").textContent = md.desc + (md.nota ? ` ⚠ ${md.nota}` : "");
     renderSwatches();
   }
 
@@ -2633,6 +2638,7 @@
         <div class="mat">
           <h3>${m.nombre}<small class="taller-only">${money(priceKg(key))}/kg</small></h3>
           <p>${m.desc}</p>
+          ${m.nota ? `<p class="mat-note">⚠ ${m.nota}</p>` : ""}
           ${Object.entries(m.props).map(([k, v]) => `<div class="bar"><span>${labels[k]}</span><i style="--v:${v * 20}%"></i></div>`).join("")}
         </div>`;
     }).join("");

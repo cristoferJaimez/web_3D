@@ -24,6 +24,11 @@
       "precio_kg": 129757,
       "fuente": "base + TRM",
       "muestras": 0
+    },
+    "ASA": {
+      "precio_kg": 114785,
+      "fuente": "base + TRM",
+      "muestras": 0
     }
   }
 }
