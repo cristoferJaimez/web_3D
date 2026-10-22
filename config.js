@@ -175,6 +175,18 @@ window.CONFIG = {
     ],
   },
 
+  // Embalaje según la medida más larga de la pieza (cm). precio: caja o bolsa + protección
+  // (plástico de burbujas, papel, cinta); min: tu tiempo de empacar. Es por unidad.
+  embalaje: {
+    margen: 0.20,
+    tamanos: [
+      { hasta_cm: 10, nombre: "Bolsa o caja pequeña", precio: 1500, min: 3 },
+      { hasta_cm: 20, nombre: "Caja mediana", precio: 3000, min: 5 },
+      { hasta_cm: 30, nombre: "Caja grande", precio: 5000, min: 8 },
+      { hasta_cm: 999, nombre: "Caja extra grande", precio: 8000, min: 12 },
+    ],
+  },
+
   acabados: {
     min_cambio_filamento: 4,  // sin AMS: descargar y cargar filamento entre placas de distinto color
     // Pintura: tiempo fijo por pedido (preparar, imprimar, secar, retocar) + tiempo por área visible.

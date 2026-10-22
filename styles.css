@@ -731,3 +731,4 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 .q-result.ok { background: rgba(198, 255, 61, .07); border: 1px solid rgba(198, 255, 61, .35); }
 .q-result.warn { background: rgba(255, 179, 71, .07); border: 1px solid rgba(255, 179, 71, .35); color: var(--warn); }
 @media (max-width: 800px) { .q-stats { grid-template-columns: 1fr; } }
+.plate.extra.embalaje i { background: #c08a4a; color: #fff; }

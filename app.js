@@ -1645,6 +1645,14 @@
       addExtra("herrajes", `Tornillería: ${hw.map((it) => `${it.n} × ${it.nombre.charAt(0).toLowerCase() + it.nombre.slice(1)}`).join(", ")}`, minutos, materiales, H.margen);
     }
 
+    // embalaje según la medida más larga de la pieza armada
+    if (C.embalaje) {
+      const largoCm = Math.max(state.model.size.x, state.model.size.y, state.model.size.z) * s / 10;
+      const E = C.embalaje, caja = E.tamanos.find((t) => largoCm <= t.hasta_cm) || E.tamanos[E.tamanos.length - 1];
+      addExtra("embalaje", `Embalaje: ${caja.nombre.charAt(0).toLowerCase() + caja.nombre.slice(1)} + protección${q > 1 ? ` (${q} unidades)` : ""}`,
+        caja.min * q, caja.precio * q, E.margen);
+    }
+
     const sum = (f) => parts.reduce((a, p) => a + f(p), 0);
     const bruto = sum((p) => p.precio) + extras.reduce((a, e) => a + e.precio, 0);
     const total = Math.max(bruto, roundTo(K.pedido_minimo, K.redondeo));
@@ -1671,7 +1679,7 @@
         [`Energía · ${dec(t("kwh"), 2)} kWh a ${cop(C.energia.precio_kwh)}/kWh`, t("energia")],
         [`Máquina (desgaste y mantenimiento) · ${fmtTime(hours * q)} a ${cop(machineHour())}/h`, t("maquina")],
         [`Mano de obra · ${Math.round(t("minutos") + exMin)} min a ${cop(K.mano_obra_hora)}/h`, manoObra],
-        ...(exIns ? [["Insumos (LED, pegamento, pintura, purga y máquina en cambios de color)", exIns]] : []),
+        ...(exIns ? [["Insumos (embalaje, LED, herrajes, pintura, purga…)", exIns]] : []),
         [`Reserva por impresiones fallidas · ${pct(K.margen_fallos)}`, t("riesgo")],
         [`Margen del taller · ${pct(K.margen_ganancia)}${state.led.on ? ` (materiales LED ${pct(C.led.margen)})` : ""}`, margen],
         [total > bruto ? "Ajuste a pedido mínimo y redondeo" : "Redondeo", total - exactos],
@@ -1831,7 +1839,7 @@
           ${p.off ? "" : piecesBlock(i, p)}`).join("")
         : piecesBlock(0, r.parts[0]).replace('<div class="pieces">', `<div class="pieces"><h5>Color de cada pieza${colorInfo(r.parts[0])}</h5>`);
       const extras = r.extras.map((e) => `
-        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡", herrajes: "🔩" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
+        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡", herrajes: "🔩", embalaje: "📦" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
       const minimo = r.minimo > 0 ? `
         <div class="plate extra"><i>$</i><div><span>Ajuste a pedido mínimo</span></div><b>${money(r.minimo)}</b></div>` : "";
       const offN = r.allParts.length - r.parts.length;
@@ -2475,7 +2483,7 @@
     const W = 1080, pad = 36, head = 210, foot = 64, gap = 16, info = 56;
     const tile = Math.floor((W - pad * 2 - (cols - 1) * gap) / cols);
     // servicios adicionales (LED, pintura, colores, ensamble, mínimo) para que la ficha cuadre con el total
-    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐", herrajes: "🔩" };
+    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐", herrajes: "🔩", embalaje: "📦" };
     const extraRows = r.extras.map((e) => [icons[e.key] || "+", e.label, e.precio]);
     if (r.minimo > 0) extraRows.push(["$", "Ajuste a pedido mínimo", r.minimo]);
     const rowH = 46, extrasH = extraRows.length ? 56 + extraRows.length * rowH : 0;
