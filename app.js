@@ -2250,25 +2250,58 @@
       $("#q-sub").textContent = "No pudimos consultar la cola en este momento. Escríbenos por WhatsApp y te contamos.";
       return;
     }
-    const enCola = queue.cola.filter((p) => p.estado !== "Listo").length;
-    const inicio = Math.ceil((queue.horas * (1 + C.produccion.margen_fallas)) / C.produccion.horas_por_dia);
-    $("#q-sub").textContent = enCola
-      ? `Tenemos ${enCola} ${enCola === 1 ? "pedido" : "pedidos"} en cola. Un pedido nuevo empezaría a imprimirse ${inicio <= 0 ? "hoy" : inicio === 1 ? "mañana" : `en unos ${inicio} días`}.`
+    const P = C.produccion;
+    const imprimiendo = queue.cola.filter((p) => p.estado === "Imprimiendo");
+    const espera = queue.cola.filter((p) => p.estado === "En proceso");
+    const inicio = Math.ceil((queue.horas * (1 + P.margen_fallas)) / P.horas_por_dia);
+    const cuando = queue.horas <= 0 ? "Hoy" : inicio <= 1 ? "Mañana" : `En ~${inicio} días`;
+    $("#q-sub").textContent = espera.length || imprimiendo.length
+      ? "Trabajamos por turnos: cada pedido confirmado entra a la cola en orden de llegada."
       : "¡La impresora está libre! Tu pedido empieza a imprimirse en cuanto lo confirmes.";
-    const stat = (n, t) => `<div><b>${n}</b><span>${t}</span></div>`;
+    const horasImp = imprimiendo.reduce((a, p) => a + (p.horas || 0), 0);
+    const stat = (n, t, sub = "") => `<div><span>${t}</span><b>${n}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
     $("#q-stats").innerHTML =
-      stat(queue.cola.filter((p) => p.estado === "Imprimiendo").length, "imprimiendo ahora") +
-      stat(queue.cola.filter((p) => p.estado === "En proceso").length, "en espera") +
-      stat(`${Math.round(queue.horas)} h`, "de impresión en cola") +
-      stat(queue.entregados14, "entregados (últimos 14 días)");
-    const ico = { Imprimiendo: "🖨", "En proceso": "⏳", Listo: "📦" };
-    $("#q-list").innerHTML = queue.cola.map((p) => `
-      <div class="q-item ${slug(p.estado)}">
-        <span class="q-state">${ico[p.estado] || "•"} ${p.estado}</span>
-        <b class="mono">${p.id}</b>
-        <span>${p.material || "—"}</span>
-        <span class="mono">${p.placas || 1} ${p.placas === 1 ? "placa" : "placas"} · ${fmtTime(p.horas || 0)}</span>
-      </div>`).join("") || `<p class="hint">Sin pedidos en cola.</p>`;
+      stat(imprimiendo.length ? "Sí" : "No", "Imprimiendo ahora", imprimiendo.length ? `pedido de ~${fmtTime(horasImp)}` : "la impresora está disponible") +
+      stat(espera.length ? `${espera.length} ${espera.length === 1 ? "turno" : "turnos"}` : "Ninguno", "Turnos en espera",
+        espera.length ? `~${fmtTime(espera.reduce((a, p) => a + (p.horas || 0), 0))} de impresión` : "tu pedido va directo") +
+      stat(cuando, "Tu pedido empezaría", "después de confirmarlo por WhatsApp");
+  }
+
+  // Consulta de un pedido por su número (el que llega en el mensaje de WhatsApp)
+  function trackOrder(raw) {
+    const box = $("#q-result");
+    const id = raw.trim().toUpperCase();
+    box.hidden = !id;
+    if (!id) return;
+    if (!queue.ok) {
+      box.className = "q-result warn";
+      box.textContent = "No pudimos consultar la cola en este momento. Escríbenos por WhatsApp.";
+      return;
+    }
+    const i = queue.cola.findIndex((p) => p.id.toUpperCase() === id);
+    if (i < 0) {
+      box.className = "q-result warn";
+      box.innerHTML = `No encontramos <b>${id.replace(/[<>&"]/g, "")}</b> en la cola. Puede que aún esté en cotización (confírmalo por WhatsApp) o que ya lo hayamos entregado.`;
+      return;
+    }
+    const p = queue.cola[i];
+    const P = C.produccion;
+    let msg;
+    if (p.estado === "Imprimiendo") {
+      msg = `🖨 <b>¡Se está imprimiendo!</b> ${p.placas} ${p.placas === 1 ? "placa" : "placas"} · ~${fmtTime(p.horas || 0)} de impresión.`;
+    } else if (p.estado === "Listo") {
+      msg = `📦 <b>¡Tu pedido está listo!</b> Escríbenos por WhatsApp para coordinar la entrega.`;
+    } else {
+      const antes = queue.cola.slice(0, i).filter((o) => o.estado !== "Listo");
+      const turno = antes.length + 1;
+      const h = antes.reduce((a, o) => a + (o.horas || 0), 0) * (1 + P.margen_fallas);
+      const dias = Math.ceil(h / P.horas_por_dia);
+      msg = `⏳ <b>Confirmado, en cola.</b> Eres el turno <b>${turno}</b>` +
+        (turno > 1 ? ` (hay ${turno - 1} ${turno === 2 ? "pedido" : "pedidos"} antes del tuyo)` : "") +
+        `. Empieza a imprimirse ${h <= 0 ? "hoy" : dias <= 1 ? "mañana" : `en unos ${dias} días`}.`;
+    }
+    box.className = "q-result ok";
+    box.innerHTML = `<span class="mono">${p.id}</span> · ${p.material || ""}<br>${msg}`;
   }
 
   // Datos del pedido para la hoja de control (Google Sheets, ver apps-script/Code.gs)
@@ -2899,5 +2932,6 @@
   loadDailyPrices().then(renderPrices).then(loadTRM).then(renderPrices);
   renderQueue();
   loadQueue();
+  $("#q-track").onsubmit = (e) => { e.preventDefault(); trackOrder($("#q-id").value); };
   setInterval(loadQueue, 5 * 60 * 1000); // refrescar la cola cada 5 minutos
 })();
