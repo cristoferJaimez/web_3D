@@ -2901,6 +2901,23 @@
     update();
   }
 
+  /* ---------------- tema claro / oscuro ---------------- */
+  function initTheme() {
+    const btn = $("#theme-btn");
+    const paint = () => {
+      const light = document.documentElement.dataset.theme === "light";
+      btn.textContent = light ? "🌙" : "☀";
+      btn.setAttribute("aria-label", light ? "Cambiar a tema oscuro" : "Cambiar a tema claro");
+    };
+    btn.onclick = () => {
+      const t = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+      document.documentElement.dataset.theme = t;
+      try { localStorage.setItem("tema", t); } catch (e) { /* sin almacenamiento */ }
+      paint();
+    };
+    paint();
+  }
+
   /* ---------------- moneda ---------------- */
   function initCurrency() {
     try {
@@ -2923,6 +2940,7 @@
   /* ---------------- arranque ---------------- */
   bindTexts();
   initCurrency();
+  initTheme();
   initHero();
   initViewer();
   initForm();
