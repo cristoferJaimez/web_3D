@@ -2057,12 +2057,12 @@
     });
   }
 
-  function toast(msg) {
+  function toast(msg, ms = 6000) {
     const t = $("#toast");
     t.textContent = msg;
     t.hidden = false;
     clearTimeout(toast.timer);
-    toast.timer = setTimeout(() => { t.hidden = true; }, 6000);
+    toast.timer = setTimeout(() => { t.hidden = true; }, ms);
   }
 
   // blob: la imagen ya lista (Blob) o null. Debe llamarse directo desde el clic.
@@ -2103,10 +2103,20 @@
     const status = $("#share-status");
     const setStatus = (ok) => {
       status.className = "share-status " + (ok ? "ok" : "fail");
-      status.textContent = ok
-        ? "✓ Imagen copiada. Abre WhatsApp y pégala en el chat con Ctrl+V (o clic derecho → Pegar)."
-        : "No se pudo copiar automáticamente: usa «Copiar imagen» o descárgala y adjúntala en WhatsApp con el clip 📎.";
+      status.innerHTML = ok
+        ? `<ol class="steps-list">
+             <li><b>✓ La imagen ya está copiada</b></li>
+             <li>Toca <b>Abrir WhatsApp</b></li>
+             <li>En el chat presiona <kbd>Ctrl</kbd> + <kbd>V</kbd> para pegar la imagen y envíala</li>
+           </ol>`
+        : `<ol class="steps-list">
+             <li>Toca <b>Descargar</b> para guardar la imagen</li>
+             <li>Toca <b>Abrir WhatsApp</b></li>
+             <li>En el chat usa el clip 📎 para adjuntar la imagen y envíala</li>
+           </ol>`;
+      copied = ok;
     };
+    let copied = false;
     status.className = "share-status";
     status.textContent = "Copiando imagen…";
     dlg.hidden = false;
@@ -2115,6 +2125,10 @@
     $("#share-wa").onclick = () => {
       const win = window.open(waUrl, "_blank");
       if (win) win.opener = null;
+      closeShareDialog();
+      toast(copied
+        ? "📋 La imagen de tu cotización ya está copiada. En el chat de WhatsApp presiona Ctrl + V para pegarla y envíala."
+        : "📎 En el chat de WhatsApp adjunta con el clip la imagen que descargaste y envíala.", 15000);
     };
     $("#share-wa").focus();
   }
@@ -2183,6 +2197,7 @@
     const visible = views ? views.map((v) => v.sub.visible) : null;
     if (views) views.forEach((v) => { if (v.label) v.label.visible = false; }); // la ficha pone sus propios títulos
     const dimsVisible = viewer.dimGroup ? viewer.dimGroup.visible : null;
+    if (viewer.dimGroup) viewer.dimGroup.visible = false; // las cotas del visor no van en la ficha
     const printerVisible = viewer.printer.group.visible;
     for (let i = 0; i < n; i++) {
       const x = pad + (i % cols) * (tile + gap);
