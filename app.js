@@ -27,6 +27,7 @@
     acabado: "uno", // uno | placas | pintado
     pintura: "basica",
     pieceColors: {}, // "placa:pieza" → color
+    offPlates: new Set(), // placas que el cliente no quiere imprimir
     baseColor: 0, // color de las piezas sin pintar en multicolor
     led: { on: false, tipo: "blanco", metros: null }, // metros null = sugerido por la pieza
     fit: "ajustar", // ajustar a la impresora | dividir en placas
@@ -945,6 +946,7 @@
     viewer.viewKey = null;
     state.model = model;
     state.pieceColors = {};
+    state.offPlates = new Set();
     state.led.metros = null;
 
     $("#dropzone").style.display = "none";
@@ -1551,15 +1553,19 @@
     const s = state.scale / 100, q = state.qty, K = C.costos, A = C.acabados;
     const hourCost = (min) => (min / 60) * K.mano_obra_hora;
     const base = packedParts(s) || computeParts(...splitCounts(s));
-    const parts = base.map((p, i) => {
+    const allParts = base.map((p, i) => {
       const src = p.pieces && p.pieces.length ? p.pieces : [{ name: "", volume: p.vol, area: p.area, minY: p.minY, maxY: p.minY + p.h }];
       const pieces = src.map((pc, j) => ({
         name: pc.name, colorIdx: colorOf(i, j), dims: (pc.dims || [0, 0, 0]).map((v) => v * s),
         vol: pc.volume * s ** 3, area: pc.area * s ** 2, minY: (pc.minY - p.minY) * s, maxY: (pc.maxY - p.minY) * s,
       }));
-      return { ...p, colorIdx: plateColor(i), r: calcPart(pieces, p.h * s) };
+      return { ...p, idx: i, label: p.label || i + 1, colorIdx: plateColor(i), r: calcPart(pieces, p.h * s) };
     });
-    for (const p of parts) p.precio = roundTo(p.r.precio * q, K.redondeo);
+    for (const p of allParts) p.precio = roundTo(p.r.precio * q, K.redondeo);
+    // placas que el cliente quitó del pedido (siempre queda al menos una)
+    for (const p of allParts) p.off = allParts.length > 1 && state.offPlates.has(p.idx);
+    if (allParts.every((p) => p.off)) { allParts[0].off = false; state.offPlates.delete(0); }
+    const parts = allParts.filter((p) => !p.off);
 
     // trabajos de todo el pedido (cada uno con su costo y su margen)
     const extras = [];
@@ -1572,7 +1578,8 @@
     // ensamble solo cuando nosotros cortamos la pieza (las placas del archivo no se pegan)
     const packed = !!base.packed;
     parts.packed = packed; // el visor lo usa para no pintar caras de corte
-    const uniones = state.model.multi || packed ? 0 : parts.length - 1;
+    allParts.packed = packed;
+    const uniones = state.model.multi || packed ? 0 : Math.max(0, parts.length - 1);
     if (uniones) addExtra("ensamble", `Ensamble: ${uniones} ${uniones === 1 ? "unión" : "uniones"} (pegado y lijado)`, uniones * K.min_ensamble * q, uniones * K.insumos_ensamble * q);
     // cambios de color: dentro de cada placa (AMS) y entre placas que arrancan con otro filamento
     const M = C.multicolor;
@@ -1625,7 +1632,7 @@
     const pct = (x) => `${Math.round(x * 100)}%`;
     const colorTxt = coloresUsados > 1 ? ` · ${coloresUsados} colores` : color.recargo ? ` (+${pct(color.recargo)} color)` : "";
     return {
-      parts, extras, uniones, packed, total, s, cm2, minimo: total - bruto, colores: coloresUsados,
+      parts, allParts, extras, uniones, packed, total, s, cm2, minimo: total - bruto, colores: coloresUsados,
       cambiosColor, purgaG, horasCambio,
       grams, meters: sum((p) => p.r.meters), hours: hours + horasCambio / q, layers: sum((p) => p.r.layers),
       lines: [
@@ -1650,8 +1657,9 @@
   function renderBadge(r) {
     const [vx, vy, vz] = C.maquina.volumen_mm;
     let status = "";
-    if (r && r.packed) status = `<span class="split">▦ Piezas repartidas en ${r.parts.length} placas</span>`;
-    else if (r && state.model.multi) status = `<span class="split">▦ ${state.model.auto ? "Organizado en" : "Archivo con"} ${r.parts.length} placas</span>`;
+    const de = r && r.allParts.length > r.parts.length ? ` · imprimes ${r.parts.length}` : "";
+    if (r && r.packed) status = `<span class="split">▦ Piezas repartidas en ${r.allParts.length} placas${de}</span>`;
+    else if (r && state.model.multi) status = `<span class="split">▦ ${state.model.auto ? "Organizado en" : "Archivo con"} ${r.allParts.length} placas${de}</span>`;
     else if (r && r.parts.length > 1) status = `<span class="split">✂ Dividido en ${r.parts.length} placas</span>`;
     else if (r) status = `<span class="ok">✓ Cabe en la impresora</span>`;
     $("#badge").innerHTML =
@@ -1672,16 +1680,29 @@
     }
     res.classList.remove("empty");
     const r = calculate();
-    state.lastParts = r.parts;
+    state.lastParts = r.allParts;
     const s = r.s, sz = state.model.size, q = state.qty;
-    const split = r.parts.length > 1;
-    renderView(r.parts, s);
+    const split = r.allParts.length > 1;
+    renderView(r.allParts, s);
+    // placas quitadas: se ven transparentes
+    (viewer.partMats || []).forEach((mats, i) => mats.forEach((mt) => {
+      const off = !!(r.allParts[i] && r.allParts[i].off);
+      mt.transparent = off;
+      mt.opacity = off ? 0.15 : 1;
+      mt.depthWrite = !off;
+      mt.needsUpdate = true;
+    }));
+    (viewer.plateViews || []).forEach((v, i) => {
+      const off = !!(r.allParts[i] && r.allParts[i].off);
+      // el interior oscuro (cara trasera) taparía la transparencia
+      v.sub.traverse((o) => { if (o.isMesh && [].concat(o.material)[0].side === THREE.BackSide) o.visible = !off; });
+    });
     if (split !== !!viewer.wasSplit) fitCamera();
     viewer.wasSplit = split;
     renderBadge(r);
 
     const dims = [sz.x * s, sz.z * s, sz.y * s];
-    $("#dims").textContent = (state.model.multi ? `${r.parts.length} placas · hasta ` : "") +
+    $("#dims").textContent = (state.model.multi ? `${r.allParts.length} placas · hasta ` : "") +
       `${fmtDims(dims)} (${dims.map((d) => Math.round(d)).join(" × ")} mm)`;
     $("#dims").title = "Ancho × fondo × alto";
 
@@ -1761,18 +1782,22 @@
           </label>`).join("")}
         </div>`;
       const colorInfo = (p) => p.r.cambios ? ` · ${p.r.colors} colores, ${p.r.cambios} cambios (purga ${fmtG(p.r.purgaG * q)})` : "";
-      const rows = split ? r.parts.map((p, i) => `
-        <div class="plate${viewer.focus === i ? " active" : ""}" data-focus="${i}">
+      const rows = split ? r.allParts.map((p, i) => `
+        <div class="plate${viewer.focus === i ? " active" : ""}${p.off ? " off" : ""}" data-focus="${i}">
           <i style="${multi && p.r.colors === 1 ? `background:${p.r.color.hex};color:${contrast(p.r.color.hex)}` : ""}">${p.label || i + 1}</i>
           <div><span>${fmtDims([(p.b.x1 - p.b.x0) * s, (p.b.z1 - p.b.z0) * s, p.h * s])} · ${fmtG(p.r.grams * q)} · ${fmtTime(p.r.hours * q)} · ${Math.round(p.r.layers)} capas${colorInfo(p)}</span>
             <small class="pcost taller-only">Filamento ${money(p.r.filamento * q)} · Luz ${money(p.r.energia * q)} · Máquina ${money(p.r.maquina * q)} · Mano de obra ${money(p.r.manoObra * q)} · Reserva ${money(p.r.riesgo * q)} · Margen ${money(p.r.margen * q)}</small>${picker(i, p)}</div>
-          <b>${money(p.precio)}</b></div>${piecesBlock(i, p)}`).join("")
+          <div class="plate-end"><b>${p.off ? "—" : money(p.precio)}</b>
+            <label class="toggle mini" title="Incluir en el pedido"><input type="checkbox" class="plate-on" data-plate="${i}" ${p.off ? "" : "checked"} ${!p.off && r.parts.length === 1 ? "disabled" : ""}><span></span></label></div></div>
+          ${p.off ? "" : piecesBlock(i, p)}`).join("")
         : piecesBlock(0, r.parts[0]).replace('<div class="pieces">', `<div class="pieces"><h5>Color de cada pieza${colorInfo(r.parts[0])}</h5>`);
       const extras = r.extras.map((e) => `
         <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
       const minimo = r.minimo > 0 ? `
         <div class="plate extra"><i>$</i><div><span>Ajuste a pedido mínimo</span></div><b>${money(r.minimo)}</b></div>` : "";
-      plates.innerHTML = `<h4>${split ? "Precio por placa" : multi ? "Multicolor" : "Servicios adicionales"}</h4>` + rows + extras + minimo;
+      const offN = r.allParts.length - r.parts.length;
+      const head = split ? `Precio por placa${offN ? ` · imprimes ${r.parts.length} de ${r.allParts.length}` : ""}` : multi ? "Multicolor" : "Servicios adicionales";
+      plates.innerHTML = `<h4>${head}</h4>` + (split ? `<p class="hint plates-hint">Desactiva las placas que no quieras imprimir.</p>` : "") + rows + extras + minimo;
     }
 
     const mat = C.materiales[state.mat];
@@ -1796,6 +1821,9 @@
         // colores de cada pieza, debajo de su placa (solo si la placa mezcla colores)
         if (r.colores > 1 && p.r.colors > 1) p.r.pieces.forEach((pc) => lines.push(`      · ${pc.name}: ${pc.color.nombre}`));
       });
+    }
+    if (split && r.allParts.length > r.parts.length) {
+      lines.push(`   (No incluye: ${r.allParts.filter((p) => p.off).map((p) => `placa ${p.label}`).join(", ")})`);
     }
     if (!split && r.colores > 1) r.parts[0].r.pieces.forEach((pc) => lines.push(`      · ${pc.name}: ${pc.color.nombre}`));
     r.extras.forEach((e) => lines.push(`   – ${e.label}: ${cop(e.precio)}`));
@@ -1925,11 +1953,18 @@
 
     // lista de placas: clic para enfocar en el visor; selector de color por placa
     $("#plates").addEventListener("click", (e) => {
-      if (e.target.closest("select, label")) return;
+      if (e.target.closest("select, label, input")) return;
       const row = e.target.closest(".plate[data-focus]");
       if (row) focusPlate(+row.dataset.focus === viewer.focus ? null : +row.dataset.focus);
     });
     $("#plates").addEventListener("change", (e) => {
+      const on = e.target.closest(".plate-on");
+      if (on) {
+        const i = +on.dataset.plate;
+        if (on.checked) state.offPlates.delete(i); else state.offPlates.add(i);
+        update();
+        return;
+      }
       const sel = e.target.closest(".piece-color");
       if (!sel) return;
       state.pieceColors[sel.dataset.key] = +sel.value;
@@ -2092,7 +2127,8 @@
      Todo es síncrono: compartir/copiar solo se permite en el mismo instante del clic. */
   function quoteImage(r) {
     const views = viewer.plateViews && viewer.plateViews.length ? viewer.plateViews : null;
-    const n = views ? views.length : 1;
+    const active = r.parts; // solo las placas que se imprimen
+    const n = views ? active.length : 1;
     const cols = n === 1 ? 1 : n <= 4 ? 2 : 3;
     const rows = Math.ceil(n / cols);
     const W = 1080, pad = 36, head = 210, foot = 64, gap = 16, info = 56;
@@ -2151,10 +2187,10 @@
     for (let i = 0; i < n; i++) {
       const x = pad + (i % cols) * (tile + gap);
       const y = head + Math.floor(i / cols) * (tile + info + gap);
-      const p = r.parts[i];
+      const p = active[i];
       if (views) {
-        const v = views[i];
-        views.forEach((o, k) => { o.sub.visible = k === i; });
+        const v = views[p.idx];
+        views.forEach((o, k) => { o.sub.visible = k === p.idx; });
         const big = Math.max((p.b.x1 - p.b.x0) * s, p.h * s, (p.b.z1 - p.b.z0) * s, 60);
         const dist = Math.max(big * 2.1, 160);
         cam.position.set(v.ox + dist * 0.55, dist * 0.6, v.oz + dist * 0.7);

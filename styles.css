@@ -543,3 +543,13 @@ html.taller .nav::after {
   .plate { gap: .6rem; padding: .6rem; }
   .plate b { font-size: .8rem; }
 }
+
+/* ---------- incluir / quitar placas ---------- */
+.plate-end { display: flex; flex-direction: column; align-items: flex-end; gap: .45rem; }
+.toggle.mini span { width: 32px; height: 18px; }
+.toggle.mini span::after { width: 12px; height: 12px; }
+.toggle.mini input:checked + span::after { left: 17px; }
+.toggle.mini input:disabled + span { opacity: .5; }
+.plate.off { opacity: .45; }
+.plate.off b { color: var(--muted); }
+.plates-hint { margin: -.2rem 0 .2rem; }
