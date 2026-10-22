@@ -47,7 +47,11 @@ se guarda solo en tu Drive (usa el espacio de tu cuenta de Gmail, 15 GB gratis).
 3. **Implementar → Nueva implementación → Aplicación web**. Ejecutar como: **Yo**. Acceso: **Cualquier usuario**.
 4. Autoriza (Configuración avanzada → Ir al proyecto → Permitir) y copia la URL que termina en `/exec`.
 5. Pégala en `config.js` → `subida.url` y sube el cambio.
-6. Opcional: en el editor elige la función `activarLimpieza` y pulsa ▶ Ejecutar (borra pedidos de más de 90 días).
+6. En el editor elige la función `crearHoja` y pulsa ▶ Ejecutar: crea la hoja **HHH3D - Control de pedidos** y pide los permisos de Sheets.
+7. Opcional: ejecuta `activarLimpieza` (borra los .zip de más de 90 días; la hoja se conserva).
+
+Cada pedido agrega una fila a la hoja (pedido, cliente, archivo, costo, total, utilidad, estado, abonado, saldo)
+y la pestaña **Resumen** suma ventas, costos, utilidad y cartera por mes.
 
 Orden en Drive: `HHH3D - Pedidos / 2026-10 / 20261022-1530-nombre.zip` (archivos + `pedido.txt`).
 Cada pedido te llega también por correo con el resumen y el enlace. Los archivos no se comparten.

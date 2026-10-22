@@ -97,7 +97,7 @@ window.CONFIG = {
   // Pega aquí la URL de tu Apps Script (ver apps-script/Code.gs). Vacío = el cliente
   // adjunta el archivo a mano en WhatsApp.
   subida: {
-    url: "",
+    url: "https://script.google.com/macros/s/AKfycbyDN7KZmPw9pIS7g0RNbFHdlKwXB9wSpQKmwU8S_9RtJqNHeHy-hAHiXTBtt3JovRi7/exec",
     max_mb: 30,               // tamaño máximo del .zip; si es más grande, se adjunta en WhatsApp
   },
 

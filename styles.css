@@ -603,3 +603,16 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 .materials { grid-template-columns: repeat(auto-fit, minmax(240px, 300px)); justify-content: center; }
 #materiales .section-head { text-align: center; }
 @media (max-width: 600px) { .materials { grid-template-columns: 1fr; } }
+
+/* ---------- datos del cliente ---------- */
+.share-client { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; }
+.share-client[hidden] { display: none; }
+.share-client label { display: flex; flex-direction: column; gap: .35rem; font-size: .9rem; color: var(--text); }
+.share-client span { color: var(--muted); }
+.share-client input {
+  padding: .6rem .8rem; border-radius: 12px; background: var(--bg); color: var(--text);
+  border: 1px solid var(--line); font: inherit; font-size: .9rem;
+}
+.share-client input:focus { outline: none; border-color: var(--accent); }
+.share-client input.missing { border-color: #ff6b6b; box-shadow: 0 0 0 3px rgba(255, 107, 107, .15); }
+@media (max-width: 520px) { .share-client { grid-template-columns: 1fr; } }

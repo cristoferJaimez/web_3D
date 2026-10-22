@@ -1637,7 +1637,7 @@
     const pct = (x) => `${Math.round(x * 100)}%`;
     const colorTxt = coloresUsados > 1 ? ` · ${coloresUsados} colores` : color.recargo ? ` (+${pct(color.recargo)} color)` : "";
     return {
-      parts, allParts, extras, uniones, packed, total, s, cm2, minimo: total - bruto, colores: coloresUsados,
+      parts, allParts, extras, uniones, packed, total, s, cm2, costoProd: exactos - margen, minimo: total - bruto, colores: coloresUsados,
       cambiosColor, purgaG, horasCambio,
       grams, meters: sum((p) => p.r.meters), hours: hours + horasCambio / q, layers: sum((p) => p.r.layers),
       lines: [
@@ -1996,7 +1996,8 @@
       e.preventDefault();
       let blob = null;
       try { blob = quoteImage(state.lastQuote); } catch (err) { console.error(err); }
-      sendWhatsApp(state.waText, blob, `cotizacion-${slug(C.negocio.nombre)}.png`, { files: state.sourceFiles || [] });
+      sendWhatsApp(state.waText, blob, `cotizacion-${slug(C.negocio.nombre)}.png`,
+        { files: state.sourceFiles || [], order: buildOrder(state.lastQuote) });
     });
     $("#notes").oninput = (e) => { state.notes = e.target.value; };
     $("#pn-prev").onclick = () => stepPlate(-1);
@@ -2088,7 +2089,9 @@
   // agrega el enlace del archivo y las observaciones del cliente al mensaje
   const composeText = (text, fileUrl) => {
     const n = (state.notes || "").trim();
-    return text + (fileUrl ? `\n• Archivo para imprimir: ${fileUrl}` : "") + (n ? `\n• Observaciones: ${n}` : "");
+    const c = state.client || {};
+    const head = state.orderId ? `Pedido ${state.orderId}${c.nombre ? ` · ${c.nombre}` : ""}\n` : "";
+    return head + text + (fileUrl ? `\n• Archivo para imprimir: ${fileUrl}` : "") + (n ? `\n• Observaciones: ${n}` : "");
   };
   const waLink = (text, fileUrl) => `https://wa.me/${C.negocio.whatsapp}?text=${encodeURIComponent(composeText(text, fileUrl))}`;
 
@@ -2128,21 +2131,50 @@
     const job = zipOrder(files, resumen).then((zip) => {
       if (zip.length > (C.subida.max_mb || 30) * 1048576) throw Object.assign(new Error("grande"), { big: true });
       return toBase64(zip);
-    }).then((data) => { onProgress(); return postUpload({ name: `${stamp}-${base}.zip`, data, resumen }); });
+    }).then((data) => { onProgress(); return postUpload({ tipo: "archivo", name: `${stamp}-${base}.zip`, data, resumen }); });
     job.catch(() => uploads.delete(key)); // si falla, se puede reintentar
     uploads.set(key, job);
     return job;
   }
 
   // blob: imagen de la cotización (o null). opts.files: archivos del cliente para subir.
+  // Datos del pedido para la hoja de control (Google Sheets, ver apps-script/Code.gs)
+  function buildOrder(r) {
+    const d = new Date(), pad = (n) => String(n).padStart(2, "0");
+    const id = `HHH-${String(d.getFullYear()).slice(2)}${pad(d.getMonth() + 1)}${pad(d.getDate())}-` +
+      `${pad(d.getHours())}${pad(d.getMinutes())}-${Math.random().toString(36).slice(2, 4).toUpperCase()}`;
+    const mat = C.materiales[state.mat], q = state.qty;
+    let material = `${mat.nombre} – ${r.colores > 1 ? `multicolor (${r.colores} colores)` : mat.colores[state.color].nombre}`;
+    if (state.acabado === "pintado") material += " · pintado a mano";
+    if (state.led.on) material += " · LED";
+    if (q > 1) material += ` · ${q} unidades`;
+    return {
+      id, material,
+      archivos: (state.sourceFiles || []).map((f) => f.name).join(", ") || state.model.name,
+      placas: r.parts.length, peso: Math.round(r.grams * q), horas: Math.round(r.hours * q * 10) / 10,
+      costo: Math.round(r.costoProd), total: r.total,
+    };
+  }
+
+  function registerOrder(o) {
+    if (!C.subida || !C.subida.url) return;
+    // no hace falta la respuesta: "no-cors" + keepalive llega aunque se abra WhatsApp
+    fetch(C.subida.url, {
+      method: "POST", mode: "no-cors", keepalive: true,
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ tipo: "pedido", ...o }),
+    }).catch(() => {});
+  }
+
   function sendWhatsApp(baseText, blob, fileName, opts = {}) {
+    state.orderId = opts.order ? opts.order.id : null;
     if (!blob) {
       window.open(waLink(baseText), "_blank", "noopener");
       return;
     }
     // ventana de envío (computador y celular). La imagen se copia AHORA, mientras la
     // página tiene el foco (si primero se abre WhatsApp, el navegador ya no deja copiar).
-    openShareDialog(baseText, blob, fileName, opts.files || []);
+    openShareDialog(baseText, blob, fileName, opts.files || [], opts.order || null);
   }
 
   function copyImage(blob) {
@@ -2152,7 +2184,17 @@
   }
 
   let shareUrl = null;
-  function openShareDialog(baseText, blob, fileName, files) {
+  function openShareDialog(baseText, blob, fileName, files, order) {
+    // nombre y celular del cliente (se recuerdan en este navegador)
+    const askClient = !!(order && C.subida && C.subida.url);
+    $("#share-client").hidden = !askClient;
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem("cliente") || "{}"); } catch (e) { /* sin almacenamiento */ }
+    state.client = state.client || saved;
+    $("#share-name").value = state.client.nombre || "";
+    $("#share-phone").value = state.client.celular || "";
+    $("#share-name").oninput = (e) => { state.client.nombre = e.target.value.trim(); $("#share-name").classList.remove("missing"); };
+    $("#share-phone").oninput = (e) => { state.client.celular = e.target.value.trim(); };
     const notes = $("#share-notes");
     notes.value = state.notes || "";
     notes.oninput = () => { state.notes = notes.value; $("#notes").value = notes.value; };
@@ -2223,6 +2265,16 @@
     }
     waBtn.onclick = () => {
       if (uploading) return;
+      if (askClient && !state.client.nombre) {
+        $("#share-name").classList.add("missing");
+        $("#share-name").focus();
+        return;
+      }
+      if (order) {
+        try { localStorage.setItem("cliente", JSON.stringify(state.client)); } catch (e) { /* sin almacenamiento */ }
+        registerOrder({ ...order, cliente: state.client.nombre || "", celular: state.client.celular || "",
+          url: fileUrl || "", observaciones: (state.notes || "").trim(), detalle: composeText(baseText, fileUrl) });
+      }
       if (mobileShare) {
         navigator.share({ files: [imgFile], text: composeText(baseText, fileUrl) }).catch((e) => {
           if (e.name !== "AbortError") window.open(waLink(baseText, fileUrl), "_blank", "noopener");
