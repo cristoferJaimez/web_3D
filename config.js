@@ -63,8 +63,10 @@ window.CONFIG = {
     min_ensamble: 15,         // por unión cuando la pieza se divide: pegar y lijar
     insumos_ensamble: 800,    // pegamento por unión
     margen_fallos: 0.10,      // reserva por impresiones fallidas
-    margen_ganancia: 0.40,    // tu utilidad
-    pedido_minimo: 15000,
+    // tu utilidad sobre el costo. Mercado colombiano 2026: se cobra entre 1,4 y 2 veces el costo
+    // (piezas terminadas desde ~$25.000). 0.80 = precio 1,8 veces el costo.
+    margen_ganancia: 0.80,
+    pedido_minimo: 20000,     // ningún pedido por debajo de esto
     redondeo: 500,            // redondear el total a múltiplos de…
   },
 
