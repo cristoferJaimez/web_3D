@@ -51,7 +51,15 @@ window.CONFIG = {
     perimetros: 3,
     eficiencia: 0.55,         // aceleraciones, desplazamientos, retracciones
     seg_por_capa: 2,          // cambio de capa
-    recargo_soportes: 0.15,   // +15 % de material y tiempo si lleva soportes
+  },
+
+  // Soportes calculados con la forma de la pieza (valores por defecto de Bambu Studio)
+  soportes: {
+    angulo: 30,               // caras con menos de 30° de inclinación respecto a la cama llevan soporte
+    densidad: 0.17,           // relleno del soporte (líneas cada ~2,5 mm)
+    contacto_mm: 0.35,        // capas densas que tocan la pieza (mm de material por mm² sostenido)
+    min_retirar: 3,           // por placa con soportes: retirarlos y limpiar marcas…
+    min_por_g: 0.3,           // …más 0,3 min por gramo de soporte
   },
 
   costos: {
@@ -59,7 +67,6 @@ window.CONFIG = {
     // (≈ $8.338/hora con jornada de 42 h). Trabajo técnico: 1,5 a 2 veces eso.
     mano_obra_hora: 15000,
     min_preparacion: 10,      // por placa: laminar, limpiar cama, arrancar y retirar la pieza
-    min_soportes: 8,          // por placa con soportes: retirarlos y limpiar marcas
     min_ensamble: 15,         // por unión cuando la pieza se divide: pegar y lijar
     insumos_ensamble: 800,    // pegamento por unión
     margen_fallos: 0.10,      // reserva por impresiones fallidas

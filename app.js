@@ -590,7 +590,9 @@
     scene.add(printer.group);
 
     const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.05 });
-    Object.assign(viewer, { el, renderer, scene, camera, controls, material, printer, mesh: null });
+    // soportes sugeridos: naranja translúcido, como en el laminador
+    const supportMat = new THREE.MeshStandardMaterial({ color: 0xff9f43, roughness: 0.8, transparent: true, opacity: 0.55, depthWrite: false });
+    Object.assign(viewer, { el, renderer, scene, camera, controls, material, supportMat, printer, mesh: null });
     fitCamera();
 
     function resize() {
@@ -688,8 +690,66 @@
       const ux = bx - ax, uy = by - ay, uz = bz - az, vx = cx - ax, vy = cy - ay, vz = cz - az;
       area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
     }
+    const sup = supportEstimate(p, start * 9, (start + count) * 9, vol < 0 ? -1 : 1, minX, minY, minZ, maxX - minX, maxZ - minZ);
     // medidas en mm: ancho (X), fondo (Z) y alto (Y)
-    return { volume: Math.abs(vol), area, minY, maxY, minX, minZ, dims: [maxX - minX, maxZ - minZ, maxY - minY] };
+    return { volume: Math.abs(vol), area, minY, maxY, minX, minZ, dims: [maxX - minX, maxZ - minZ, maxY - minY], ...sup };
+  }
+
+  // Soportes según la forma: como el laminador, toma las caras que miran hacia abajo con
+  // menos de C.soportes.angulo° de inclinación y mide el aire que hay debajo de cada una
+  // (hasta la cama o hasta la parte de la pieza que tenga abajo).
+  // Devuelve supVol (mm³ de espacio a rellenar con soporte), supArea (mm² de caras sostenidas)
+  // y supCols: columnas [x, z, piso, techo] cada ~2,5 mm para dibujarlas en el visor.
+  function supportEstimate(p, i0, i1, sign, minX, minY, minZ, dx, dz) {
+    const lim = -Math.cos((C.soportes.angulo * Math.PI) / 180);
+    const c = Math.max(0.5, Math.max(dx, dz) / 150); // celdas de ~1/150 del ancho
+    const D = Math.ceil(dz / c) + 1;
+    const tops = new Map(); // celda → alturas de las caras que miran hacia arriba
+    let supVol = 0, supArea = 0;
+    const G = 2.5, cols = new Map(); // columnas para el visor: una por celda de 2,5 mm y techo
+    // reparte puntos sobre el triángulo (con el área proyectada que representa cada uno)
+    const sample = (i, fn) => {
+      const ax = p[i], ay = p[i + 1], az = p[i + 2];
+      const ux = p[i + 3] - ax, uy = p[i + 4] - ay, uz = p[i + 5] - az;
+      const vx = p[i + 6] - ax, vy = p[i + 7] - ay, vz = p[i + 8] - az;
+      const k = Math.min(30, Math.max(1, Math.ceil(Math.max(Math.abs(ux), Math.abs(uz), Math.abs(vx), Math.abs(vz)) / c)));
+      const w = Math.abs(ux * vz - uz * vx) / 2 / ((k * (k + 1)) / 2);
+      for (let a = 0; a < k; a++)
+        for (let b = 0; b < k - a; b++) {
+          const s = (a + 1 / 3) / k, t = (b + 1 / 3) / k;
+          const cell = Math.floor((ax + s * ux + t * vx - minX) / c) * D + Math.floor((az + s * uz + t * vz - minZ) / c);
+          fn(cell, ay + s * uy + t * vy, w, ax + s * ux + t * vx, az + s * uz + t * vz);
+        }
+    };
+    // inclinación de cada triángulo (normal hacia afuera, en Y)
+    const ny = (i) => {
+      const ux = p[i + 3] - p[i], uy = p[i + 4] - p[i + 1], uz = p[i + 5] - p[i + 2];
+      const vx = p[i + 6] - p[i], vy = p[i + 7] - p[i + 1], vz = p[i + 8] - p[i + 2];
+      const nx = uy * vz - uz * vy, nyv = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      return (sign * nyv) / (Math.hypot(nx, nyv, nz) || 1);
+    };
+    for (let i = i0; i < i1; i += 9) {
+      if (ny(i) <= 0.05) continue;
+      sample(i, (cell, y) => {
+        const l = tops.get(cell);
+        if (l) l.push(y); else tops.set(cell, [y]);
+      });
+    }
+    for (let i = i0; i < i1; i += 9) {
+      if (ny(i) >= lim) continue;
+      sample(i, (cell, y, w, x, z) => {
+        if (y - minY < 0.3) return; // apoyada en la cama
+        let piso = minY;
+        for (const t of tops.get(cell) || []) if (t < y - 0.1 && t > piso) piso = t;
+        supVol += w * (y - piso);
+        supArea += w;
+        const gx = Math.floor((x - minX) / G), gz = Math.floor((z - minZ) / G), key = `${gx},${gz},${Math.round(y / 2)}`;
+        const col = cols.get(key);
+        if (!col) cols.set(key, [minX + (gx + 0.5) * G, minZ + (gz + 0.5) * G, piso, y]);
+        else { col[2] = Math.min(col[2], piso); col[3] = Math.max(col[3], y); }
+      });
+    }
+    return { supVol, supArea, supCols: Float32Array.from([...cols.values()].flat()) };
   }
 
   // "8,9 × 5,2 × 12 cm" a partir de [ancho, fondo, alto] en mm
@@ -800,7 +860,7 @@
       geo.setAttribute("position", new THREE.BufferAttribute(out, 3));
       const pg = prepareGeometry(geo, false, pieces);
       return {
-        vol: pg.volume, area: pg.area, minY: 0, h: pg.size.y, geo: pg.geo, label: i + 1, pieces: pg.pieces,
+        vol: pg.volume, area: pg.area, minY: 0, h: pg.size.y, geo: pg.geo, label: i + 1, pieces: pg.pieces, supCols: pg.supCols,
         b: { x0: -pg.size.x / 2, x1: pg.size.x / 2, y0: 0, y1: pg.size.y, z0: -pg.size.z / 2, z1: pg.size.z / 2 },
       };
     });
@@ -822,7 +882,7 @@
     const m = state.model, sz = m.size;
     if (m.multi) {
       return m.plates.map((pl) => ({
-        vol: pl.volume, area: pl.area, minY: 0, h: pl.size.y, geo: pl.geo, label: pl.id, pieces: pl.pieces,
+        vol: pl.volume, area: pl.area, minY: 0, h: pl.size.y, geo: pl.geo, label: pl.id, pieces: pl.pieces, supCols: pl.supCols,
         b: { x0: -pl.size.x / 2, x1: pl.size.x / 2, y0: 0, y1: pl.size.y, z0: -pl.size.z / 2, z1: pl.size.z / 2 },
       }));
     }
@@ -916,7 +976,9 @@
     const k = colTotal > 0 ? m.volume / colTotal : 1;
     const result = parts
       .filter((p) => p.vol > colTotal * 0.002)
-      .map((p) => ({ vol: p.vol * k, area: p.area, minY: p.minY, h: p.maxY - p.minY, b: p.b }));
+      .map((p) => ({ vol: p.vol * k, area: p.area, minY: p.minY, h: p.maxY - p.minY, b: p.b,
+        // soportes de la pieza entera repartidos según el volumen de cada placa
+        supVol: (m.supVol * p.vol * k) / m.volume, supArea: (m.supArea * p.vol * k) / m.volume }));
     return (m.partsCache[key] = result);
   }
 
@@ -955,6 +1017,10 @@
     state.pieceColors = {};
     state.offPlates = new Set();
     state.led.metros = null;
+    const sv = model.multi ? model.plates.reduce((a, pl) => a + pl.supVol * C.soportes.densidad + pl.supArea * C.soportes.contacto_mm, 0)
+      : model.supVol * C.soportes.densidad + model.supArea * C.soportes.contacto_mm;
+    state.supports = sv > 800; // más de ~1 g de soporte
+    $("#supports").checked = state.supports;
 
     $("#dropzone").style.display = "none";
     $("#reset-btn").hidden = false;
@@ -1022,25 +1088,34 @@
     viewer.controls.target.set(0, small ? h * 0.45 : Math.max(h / 2, bz * 0.38), 0);
   }
 
-  function textSprite(text, height = 30) {
-    const font = "600 64px 'JetBrains Mono', monospace";
+  // sub: segunda línea más pequeña (p. ej. las medidas)
+  function textSprite(text, height = 30, sub = "") {
+    const font = "600 64px 'JetBrains Mono', monospace", subFont = "500 46px 'JetBrains Mono', monospace";
     const cv = document.createElement("canvas");
     const probe = cv.getContext("2d");
     probe.font = font;
-    cv.width = Math.max(512, Math.ceil(probe.measureText(text).width) + 80);
-    cv.height = 128;
+    let w = probe.measureText(text).width;
+    probe.font = subFont;
+    if (sub) w = Math.max(w, probe.measureText(sub).width);
+    cv.width = Math.max(512, Math.ceil(w) + 80);
+    cv.height = sub ? 196 : 128;
     const g = cv.getContext("2d");
     g.fillStyle = "rgba(8,9,12,.85)";
     g.beginPath();
-    g.roundRect(4, 4, cv.width - 8, 120, 28);
+    g.roundRect(4, 4, cv.width - 8, cv.height - 8, 28);
     g.fill();
     g.fillStyle = "#c6ff3d";
     g.font = font;
     g.textAlign = "center";
     g.textBaseline = "middle";
     g.fillText(text, cv.width / 2, 68);
+    if (sub) {
+      g.fillStyle = "#e6e8ee";
+      g.font = subFont;
+      g.fillText(sub, cv.width / 2, 142);
+    }
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false }));
-    sp.scale.set(height * (cv.width / 128), height, 1);
+    sp.scale.set(height * (cv.width / 128), height * (cv.height / 128), 1);
     return sp;
   }
 
@@ -1117,6 +1192,12 @@
     renderDims(split ? null : state.model.size, s);
     if (!split) {
       viewer.mesh.scale.setScalar(s);
+      if (viewer.mesh.userData.sup !== state.model.supCols) {
+        viewer.mesh.clear();
+        viewer.mesh.add(supportMesh(state.model.supCols, viewer.supportMat));
+        viewer.mesh.userData.sup = state.model.supCols;
+      }
+      viewer.mesh.children.forEach((c) => { c.visible = state.supports; });
       // pieza pequeña: el cabezal se estaciona arriba para no tapar la vista de cerca
       const sz = state.model.size, [bx, , bz] = C.maquina.volumen_mm;
       const small = Math.max(sz.x, sz.y, sz.z) * s < bx * 0.35;
@@ -1170,18 +1251,23 @@
       for (const mt of [front, back]) {
         const mesh = new THREE.Mesh(p.geo || state.model.geo, mt);
         mesh.userData.shared = true; // la malla del modelo no se libera al redibujar
-        if (mt === front) Object.assign(mesh.userData, { part: i, planes });
+        if (mt === front) {
+          Object.assign(mesh.userData, { part: i, planes });
+          if (state.supports) {
+            const sm = supportMesh(p.supCols || state.model.supCols, viewer.supportMat.clone());
+            sm.material.clippingPlanes = planes;
+            mesh.add(sm);
+          }
+        }
         sub.add(mesh);
         mesh.scale.setScalar(s);
         mesh.position.set(ox - cx, -lift, oz - cz);
       }
 
-      // en celular: etiqueta grande y corta (las medidas están en la lista de placas)
+      // nombre de la placa y debajo sus medidas (en celular, más grande para que se lea)
       const narrow = viewer.el.clientWidth < 520;
-      const label = narrow
-        ? textSprite(`PLACA ${p.label || i + 1}`, 64)
-        : textSprite(`PLACA ${p.label || i + 1} · ${fmtDims([(b.x1 - b.x0) * s, (b.z1 - b.z0) * s, p.h * s])}`);
-      label.position.set(ox, Math.max(top, 40) + 30, oz);
+      const label = textSprite(`PLACA ${p.label || i + 1}`, narrow ? 56 : 34, fmtDims([(b.x1 - b.x0) * s, (b.z1 - b.z0) * s, p.h * s]));
+      label.position.set(ox, Math.max(top, 40) + 45, oz);
       sub.add(label);
       group.add(sub);
       viewer.plateViews.push({ sub, ox, oz, top, label });
@@ -1192,6 +1278,34 @@
     viewer.layout = { w: cols * (bx + gap), d: rows * (by + gap) };
     renderPlateNav();
     if (wasFocused) fitCamera();
+  }
+
+  // Columnas de soporte (en unidades del modelo) como un solo bloque de cajitas.
+  // La malla se guarda por arreglo de columnas: no se rehace en cada cambio de precio.
+  const supportGeos = new WeakMap();
+  function supportMesh(cols, mat) {
+    let geo = supportGeos.get(cols);
+    if (!geo) {
+      const n = cols.length / 4, h = 1; // media anchura: deja ~0,5 mm de luz entre columnas
+      const pos = new Float32Array(n * 24), idx = new Uint32Array(n * 36);
+      const F = [0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 3, 7, 6, 3, 6, 2, 0, 4, 7, 0, 7, 3, 1, 2, 6, 1, 6, 5];
+      for (let c = 0; c < n; c++) {
+        const [x, z, y0, y1] = cols.subarray(c * 4, c * 4 + 4);
+        const v = [[x - h, y0, z - h], [x + h, y0, z - h], [x + h, y1, z - h], [x - h, y1, z - h],
+          [x - h, y0, z + h], [x + h, y0, z + h], [x + h, y1, z + h], [x - h, y1, z + h]];
+        v.forEach((p, k) => pos.set(p, c * 24 + k * 3));
+        F.forEach((f, k) => { idx[c * 36 + k] = c * 8 + f; });
+      }
+      geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      geo.setIndex(new THREE.BufferAttribute(idx, 1));
+      geo.computeVertexNormals();
+      supportGeos.set(cols, geo);
+    }
+    const m = new THREE.Mesh(geo, mat);
+    m.userData.shared = true; // se reutiliza al redibujar
+    m.raycast = () => {}; // no estorba al pintar piezas con clic
+    return m;
   }
 
   // Colores del visor según el color de cada pieza
@@ -1505,13 +1619,16 @@
     const mat = C.materiales[state.mat];
     const P = C.impresion, K = C.costos, M = C.multicolor;
     const noz = nozzle(), capa = layerHeight(), lw = noz.d * 1.05;
-    const sup = state.supports ? 1 + P.recargo_soportes : 1;
+    const S = C.soportes;
 
-    let printed = 0, filamento = 0, grams = 0, interior = 0, volumen = 0;
+    let printed = 0, filamento = 0, grams = 0, interior = 0, volumen = 0, supG = 0;
     for (const pc of pieces) {
       pc.color = mat.colores[pc.colorIdx] || mat.colores[0];
       const shell = Math.min(pc.vol, pc.area * P.perimetros * lw);
-      const pr = (shell + (pc.vol - shell) * (state.infill / 100)) * sup;
+      // soporte: rejilla rala bajo los voladizos + capas de contacto más densas
+      const sop = state.supports ? pc.supVol * S.densidad + pc.supArea * S.contacto_mm : 0;
+      supG += (sop / 1000) * mat.densidad;
+      const pr = shell + (pc.vol - shell) * (state.infill / 100) + sop;
       interior += pc.vol - shell; // lo único que cambia con el relleno
       volumen += pc.vol;
       pc.grams = (pr / 1000) * mat.densidad;
@@ -1550,13 +1667,20 @@
     // mano de obra de esta placa: preparar la impresión y, si aplica, quitar soportes.
     // Sin AMS, cada color extra es otra tanda de impresión que hay que preparar.
     const tandas = M.ams ? 1 : colors.length;
-    const minutos = K.min_preparacion * tandas + (state.supports ? K.min_soportes : 0);
+    const minutos = K.min_preparacion * tandas + (supG >= 1 ? S.min_retirar + supG * S.min_por_g : 0);
     const manoObra = (minutos / 60) * K.mano_obra_hora;
     const riesgo = (filamento + energia + maquina) * K.margen_fallos;
     const costo = filamento + energia + maquina + manoObra + riesgo;
     const margen = costo * K.margen_ganancia;
     return { grams, meters, hours, layers, kwh, minutos, filamento, energia, maquina, manoObra, riesgo, margen,
-      precio: costo + margen, color, colors: colors.length, cambios, purgaG, first, last, pieces, interior, volumen };
+      precio: costo + margen, color, colors: colors.length, cambios, purgaG, first, last, pieces, interior, volumen, supG };
+  }
+
+  // gramos de soporte que necesita la forma de estas placas (con o sin el interruptor)
+  function supportNeed(parts) {
+    const S = C.soportes, d = C.materiales[state.mat].densidad;
+    const mm3 = parts.reduce((a, p) => a + p.r.pieces.reduce((b, pc) => b + pc.supVol * S.densidad + pc.supArea * S.contacto_mm, 0), 0);
+    return (mm3 / 1000) * d;
   }
 
   const machineHour = () => C.maquina.costo / C.maquina.vida_util_horas + C.maquina.mantenimiento_hora;
@@ -1573,10 +1697,12 @@
     const hourCost = (min) => (min / 60) * K.mano_obra_hora;
     const base = packedParts(s) || computeParts(...splitCounts(s));
     const allParts = base.map((p, i) => {
-      const src = p.pieces && p.pieces.length ? p.pieces : [{ name: "", volume: p.vol, area: p.area, minY: p.minY, maxY: p.minY + p.h }];
+      const src = p.pieces && p.pieces.length ? p.pieces : [{ name: "", volume: p.vol, area: p.area, minY: p.minY, maxY: p.minY + p.h,
+        supVol: p.supVol || 0, supArea: p.supArea || 0 }];
       const pieces = src.map((pc, j) => ({
         name: pc.name, colorIdx: colorOf(i, j), dims: (pc.dims || [0, 0, 0]).map((v) => v * s),
         vol: pc.volume * s ** 3, area: pc.area * s ** 2, minY: (pc.minY - p.minY) * s, maxY: (pc.maxY - p.minY) * s,
+        supVol: (pc.supVol || 0) * s ** 3, supArea: (pc.supArea || 0) * s ** 2,
       }));
       return { ...p, idx: i, label: p.label || i + 1, colorIdx: plateColor(i), r: calcPart(pieces, p.h * s) };
     });
@@ -1749,6 +1875,11 @@
     viewer.wasSplit = split;
     renderBadge(r);
 
+    // gramos de soporte que pide la forma (por unidad), aunque el cliente no los haya marcado
+    const need = supportNeed(r.parts);
+    $("#sup-g").textContent = need < 1 ? "Esta pieza no necesita soportes."
+      : `Esta pieza necesita ~${fmtG(need)} de soporte por unidad (lo naranja en el visor). Se activan solos y se cobra solo eso.`;
+
     const dims = [sz.x * s, sz.z * s, sz.y * s];
     $("#dims").textContent = (state.model.multi ? `${r.allParts.length} placas · hasta ` : "") +
       `${fmtDims(dims)} (${dims.map((d) => Math.round(d)).join(" × ")} mm)`;
@@ -1864,7 +1995,7 @@
         (state.acabado === "pintado" ? ` · pintado a mano (${C.acabados.pintura[state.pintura].nombre.toLowerCase()})` : ""),
       `• Boquilla ${dec(state.nozzle)} mm · Calidad ${C.calidades[state.calidad].toLowerCase()} (${dec(layerHeight())} mm) · Relleno ${state.infill} % · Escala ${state.scale} %`,
       `• Medidas: ${$("#dims").textContent}`,
-      `• Soportes: ${state.supports ? "sí" : "no"} · Cantidad: ${q}`,
+      `• Soportes: ${state.supports ? `sí (~${fmtG(supportNeed(r.parts))} por unidad)` : "no"} · Cantidad: ${q}`,
       `• Entrega estimada: ${state.eta.dias} días hábiles (${fmtDay(state.eta.fecha)})`,
     ];
     if (state.led.on) {
@@ -1922,7 +2053,11 @@
       s.type = "button";
       s.className = "swatch" + (i === state.color ? " active" : "");
       s.style.background = c.hex;
-      s.title = c.nombre + (c.recargo ? ` (+${Math.round(c.recargo * 100)}%)` : "");
+      // colores especiales: al pasar el mouse se explica por qué cuestan más
+      s.dataset.tip = c.recargo
+        ? `${c.nombre}: color especial, +${Math.round(c.recargo * 100)} %. Su filamento es más costoso que el de los colores convencionales.`
+        : c.nombre;
+      s.setAttribute("aria-label", s.dataset.tip);
       if (c.recargo) s.dataset.extra = "";
       s.onclick = () => {
         state.color = i;

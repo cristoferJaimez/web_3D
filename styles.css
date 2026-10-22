@@ -780,3 +780,11 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 .q-detail dd { margin: .15rem 0 0; font-size: .92rem; overflow-wrap: anywhere; }
 .q-detail .debe { color: var(--warn); }
 @media (max-width: 520px) { .q-steps li { font-size: .62rem; } }
+#sup-g { margin-top: .4rem; }
+/* explicación del color al pasar el mouse */
+.swatch[data-tip]:hover::before, .swatch[data-tip]:focus-visible::before {
+  content: attr(data-tip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: 230px; padding: .45rem .65rem; border-radius: 10px; z-index: 5; pointer-events: none;
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.35);
+  font-size: .78rem; line-height: 1.35; font-weight: 500; white-space: normal; text-align: left;
+}
