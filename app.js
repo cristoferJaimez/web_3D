@@ -2292,9 +2292,18 @@
   };
   const fmtDay = (d) => d.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
 
+  // Apps Script a veces responde 503 unos segundos (p. ej. al publicar una versión): se reintenta
+  function fetchScript(query, intentos = 3) {
+    return fetch(`${C.subida.url}?${query}&t=${Date.now()}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+      .catch((e) => (intentos > 1
+        ? new Promise((res) => setTimeout(res, 1500)).then(() => fetchScript(query, intentos - 1))
+        : Promise.reject(e)));
+  }
+
   function loadQueue() {
     if (!C.subida || !C.subida.url) return Promise.resolve();
-    return fetch(`${C.subida.url}?t=${Date.now()}`).then((r) => r.json()).then((d) => {
+    return fetchScript("cola=1").then((d) => {
       if (!d.ok) return;
       Object.assign(queue, { ok: true, horas: d.horasPendientes || 0, cola: d.cola || [], entregados14: d.entregados14 || 0 });
     }).catch(() => {}).finally(() => { renderQueue(); if (state.model) update(); });
@@ -2335,8 +2344,7 @@
     if (!id) return Promise.resolve();
     box.className = "q-result";
     box.textContent = "Consultando…";
-    return fetch(`${C.subida.url}?id=${encodeURIComponent(id)}&t=${Date.now()}`)
-      .then((r) => r.json())
+    return fetchScript(`id=${encodeURIComponent(id)}`)
       .then((d) => {
         if (!d.ok || !d.pedido) {
           box.className = "q-result warn";
