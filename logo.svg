@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>HHH3D</title>
+  <rect width="64" height="64" rx="14" fill="#0b0c10"/>
+  <!-- HHH: el bloque calefactor del hotend -->
+  <g fill="#c6ff3d">
+    <rect x="9" y="9" width="3.6" height="20" rx="1"/>
+    <rect x="17.4" y="9" width="3.6" height="20" rx="1"/>
+    <rect x="9" y="17.2" width="12" height="3.6" rx="1"/>
+    <rect x="25.8" y="9" width="3.6" height="20" rx="1"/>
+    <rect x="34.6" y="9" width="3.6" height="20" rx="1"/>
+    <rect x="25.8" y="17.2" width="12.4" height="3.6" rx="1"/>
+    <rect x="43" y="9" width="3.6" height="20" rx="1"/>
+    <rect x="51.4" y="9" width="3.6" height="20" rx="1"/>
+    <rect x="43" y="17.2" width="12" height="3.6" rx="1"/>
+  </g>
+  <!-- boquilla -->
+  <path d="M20 31.5h24l-7 10.5h-10z" fill="#eceef2"/>
+  <path d="M28.6 42h6.8l-2.2 5.2h-2.4z" fill="#b9bdc4"/>
+  <!-- capa recién extruida -->
+  <rect x="9" y="51" width="23.5" height="3.6" rx="1.8" fill="#c6ff3d"/>
+  <circle cx="32" cy="49.6" r="1.6" fill="#c6ff3d"/>
+  <rect x="35.5" y="51.9" width="19.5" height="1.8" rx=".9" fill="#c6ff3d" opacity=".25"/>
+</svg>

@@ -1,0 +1,29 @@
+{
+  "actualizado": "2026-10-22",
+  "trm": {
+    "valor": 3191.47,
+    "fecha": "2026-10-22",
+    "fuente": "datos.gov.co"
+  },
+  "energia": {
+    "precio_kwh": 875,
+    "fuente": "tarifa 2026-08-01 + 6%/año"
+  },
+  "materiales": {
+    "PLA": {
+      "precio_kg": 84841,
+      "fuente": "base + TRM",
+      "muestras": 0
+    },
+    "PETG": {
+      "precio_kg": 94823,
+      "fuente": "base + TRM",
+      "muestras": 0
+    },
+    "TPU": {
+      "precio_kg": 129757,
+      "fuente": "base + TRM",
+      "muestras": 0
+    }
+  }
+}

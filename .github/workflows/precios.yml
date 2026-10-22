@@ -1,0 +1,31 @@
+name: Actualizar precios
+
+on:
+  schedule:
+    - cron: "0 11 * * *"   # todos los días a las 6:00 a. m. hora Colombia
+  workflow_dispatch:        # botón "Run workflow" para correrlo a mano
+  push:
+    paths: ["config.js"]    # y cada vez que cambies la configuración
+
+permissions:
+  contents: write
+
+jobs:
+  precios:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/actualizar-precios.mjs
+        env:
+          ML_CLIENT_ID: ${{ secrets.ML_CLIENT_ID }}
+          ML_CLIENT_SECRET: ${{ secrets.ML_CLIENT_SECRET }}
+      - name: Guardar cambios
+        run: |
+          git config user.name "actualizador-precios"
+          git config user.email "actions@users.noreply.github.com"
+          git add precios.json
+          git diff --cached --quiet || git commit -m "Precios actualizados $(date +%F)"
+          git push

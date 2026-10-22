@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HHH3D — Impresión 3D a pedido</title>
+  <meta name="description" content="Sube tu archivo STL, visualízalo en 3D y cotiza al instante tu impresión con precios actualizados en Colombia.">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=44">
+</head>
+<body>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="nav">
+    <a href="#" class="brand"><img src="logo.svg" class="brand-mark" alt="" width="30" height="30"><span data-bind="nombre">HHH3D</span></a>
+    <nav class="nav-links">
+      <a href="#cotizador">Cotizar</a>
+      <a href="#catalogo">Catálogo</a>
+      <a href="#materiales">Materiales</a>
+      <a href="#contacto">Contacto</a>
+    </nav>
+    <div class="nav-right">
+      <div class="currency mono" role="group" aria-label="Moneda">
+        <button type="button" data-cur="COP">COP</button>
+        <button type="button" data-cur="USD">USD</button>
+      </div>
+      <a href="#cotizador" class="btn btn-sm"><span class="hide-sm">Sube tu archivo</span><span class="show-sm">Cotizar</span></a>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <section class="hero">
+    <canvas id="hero-canvas" aria-hidden="true"></canvas>
+    <div class="hero-content">
+      <p class="eyebrow mono">// capa por capa · <span data-bind="ciudad">Colombia</span></p>
+      <h1>Tus ideas,<br><span class="accent">impresas</span> en 3D.</h1>
+      <p class="lead">Sube tu archivo, gíralo en 3D y conoce al instante cuánto cuesta y cuánto tarda en imprimirse. Precios conectados al dólar del día.</p>
+      <div class="hero-cta">
+        <a href="#cotizador" class="btn">Cotizar mi pieza →</a>
+        <a href="#catalogo" class="btn btn-ghost">Ver trabajos</a>
+      </div>
+    </div>
+    <div class="hero-hud mono" id="hud">
+      <div class="hud-head">
+        <span class="hud-dot" id="hud-dot"></span>
+        <b id="hud-machine">BAMBU LAB A1</b>
+        <span class="hud-state" id="hud-state">CALENTANDO</span>
+        <button type="button" class="hud-toggle on" id="hud-sup" aria-pressed="true">Soportes: activados</button>
+      </div>
+      <div class="hud-grid">
+        <div><span>Boquilla</span><b id="hud-noz">25°</b><small id="hud-noz-t">/ 220 °C</small></div>
+        <div><span>Cama</span><b id="hud-bed">25°</b><small id="hud-bed-t">/ 65 °C</small></div>
+        <div><span>Material</span><b id="hud-mat">PLA</b><small>Verde lima</small></div>
+        <div><span>Consumido</span><b id="hud-g">0.0 g</b><small id="hud-m">0.00 m</small></div>
+        <div><span>Capa</span><b id="hud-layer">000</b><small id="hud-layers">/ 000</small></div>
+        <div><span>Velocidad</span><b id="hud-speed">0</b><small>mm/s</small></div>
+        <div><span>Ventilador</span><b id="hud-fan">0%</b><small>pieza</small></div>
+        <div><span>Restante</span><b id="hud-eta">—</b><small>estimado</small></div>
+      </div>
+      <div class="hud-bar"><i id="hud-bar"></i></div>
+      <div class="hud-foot"><span id="hud-progress">0%</span><span>boquilla Ø0.4 · capa 0.2 mm</span></div>
+    </div>
+  </section>
+
+  <!-- TICKER DE PRECIOS -->
+  <div class="ticker mono" id="ticker">
+    <div class="ticker-track" id="ticker-track"></div>
+  </div>
+
+  <!-- COTIZADOR -->
+  <section id="cotizador" class="section">
+    <div class="section-head">
+      <p class="eyebrow mono">01 / cotizador instantáneo</p>
+      <h2>Sube tu STL o 3MF y cotiza en segundos</h2>
+    </div>
+
+    <div class="quote">
+      <div class="viewer-wrap">
+        <div id="viewer" class="viewer">
+          <div class="viewer-badge mono" id="badge"></div>
+          <div class="paint-hint" id="paint-hint" hidden>🖌 Elige un color y toca una pieza para pintarla</div>
+          <div class="plate-nav mono" id="plate-nav" hidden>
+            <button type="button" id="pn-prev" aria-label="Placa anterior">‹</button>
+            <div class="pn-chips" id="pn-chips"></div>
+            <button type="button" id="pn-next" aria-label="Placa siguiente">›</button>
+          </div>
+          <div class="loader" id="loader" hidden role="status" aria-live="polite">
+            <div class="spinner"></div>
+            <b id="loader-text">Cargando…</b>
+            <div class="loader-bar"><i id="loader-bar"></i></div>
+            <small id="loader-sub" class="mono"></small>
+          </div>
+          <label id="dropzone" class="dropzone">
+            <input type="file" id="file" accept=".stl,.3mf" multiple hidden>
+            <div class="dz-icon">⬆</div>
+            <p><b>Arrastra tu archivo .STL o .3MF aquí</b><br>o haz clic para buscarlo<br><small>¿Tu proyecto viene en varios STL? Selecciónalos todos a la vez</small></p>
+            <button type="button" class="btn btn-ghost btn-sm" id="demo-btn">Probar con un modelo de ejemplo</button>
+          </label>
+        </div>
+        <div class="viewer-bar mono">
+          <span id="file-name">Sin archivo</span>
+          <span id="dims">— × — × — cm</span>
+          <button type="button" class="link" id="spin-btn" aria-pressed="false">⟳ Girar</button>
+          <button type="button" class="link" id="reset-btn" hidden>Cambiar archivo</button>
+        </div>
+        <p id="warn" class="warn" hidden></p>
+      </div>
+
+      <form class="panel" id="quote-form" onsubmit="return false">
+        <div class="field">
+          <label>Material</label>
+          <div class="chips" id="mat-chips"></div>
+          <p class="hint" id="mat-desc"></p>
+        </div>
+
+        <div class="field">
+          <label>Color <span class="hint-inline" id="color-name"></span></label>
+          <div class="swatches" id="swatches"></div>
+        </div>
+
+        <div class="field">
+          <label>Acabado</label>
+          <div class="chips" id="finish-chips"></div>
+          <div class="chips sub" id="paint-chips" hidden></div>
+          <p class="hint" id="finish-desc"></p>
+        </div>
+
+        <div class="field">
+          <label class="toggle"><input type="checkbox" id="led-on"><span></span>💡 Es un letrero: incluir iluminación LED</label>
+          <div class="led-box" id="led-box" hidden>
+            <div class="chips sub" id="led-chips"></div>
+            <div class="led-row">
+              <label for="led-m">Metros de tira</label>
+              <div class="qty"><button type="button" id="led-minus" aria-label="Menos">−</button><input type="number" id="led-m" min="0.5" max="50" step="0.5" aria-label="Metros de tira LED"><button type="button" id="led-plus" aria-label="Más">+</button></div>
+            </div>
+            <p class="hint" id="led-hint"></p>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Boquilla <span class="hint-inline" id="nozzle-name"></span></label>
+          <div class="chips" id="n-chips"></div>
+        </div>
+
+        <div class="field">
+          <label>Calidad</label>
+          <div class="chips" id="q-chips"></div>
+        </div>
+
+        <div class="field">
+          <label for="infill">Relleno <output id="infill-out" class="mono">20%</output></label>
+          <input type="range" id="infill" min="10" max="100" step="5" value="20">
+        </div>
+
+        <div class="field">
+          <label for="scale">Tamaño <output id="scale-out" class="mono">100%</output></label>
+          <input type="range" id="scale" min="10" max="300" step="1" value="100">
+          <div class="chips fit" id="fit-chips" hidden></div>
+        </div>
+
+        <div class="field row">
+          <label class="toggle"><input type="checkbox" id="supports"><span></span>Necesita soportes</label>
+          <div class="qty">
+            <button type="button" id="qty-minus">−</button>
+            <input type="number" id="qty" aria-label="Cantidad" value="1" min="1" max="500">
+            <button type="button" id="qty-plus">+</button>
+          </div>
+        </div>
+
+        <div class="result" id="result">
+          <div class="stats mono">
+            <div><span>Peso</span><b id="r-weight">—</b></div>
+            <div><span>Tiempo</span><b id="r-time">—</b></div>
+            <div><span>Filamento</span><b id="r-length">—</b></div>
+          </div>
+          <div class="plates" id="plates" hidden></div>
+          <div class="total">
+            <span>Total estimado · <em id="r-mode" class="mode-tag"></em></span>
+            <b id="r-total">$ —</b>
+            <small id="r-unit"></small>
+            <small id="r-fx" class="fx"></small>
+          </div>
+          <details class="breakdown">
+            <summary>Ver desglose</summary>
+            <ul id="r-breakdown" class="mono"></ul>
+          </details>
+          <a id="wa-btn" class="btn btn-block" target="_blank" rel="noopener">Pedir por WhatsApp</a>
+          <p class="hint">Estimación automática. El precio final se confirma al revisar el archivo.</p>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- CATÁLOGO -->
+  <section id="catalogo" class="section">
+    <div class="section-head">
+      <p class="eyebrow mono">02 / catálogo</p>
+      <h2>Trabajos y piezas listas para pedir</h2>
+      <p class="lead small" id="cat-note" hidden>Ejemplos de lo que podemos imprimir. Muy pronto verás aquí nuestros trabajos reales.</p>
+    </div>
+    <div class="chips filters" id="cat-filters"></div>
+    <div class="grid" id="catalog"></div>
+  </section>
+
+  <!-- MATERIALES -->
+  <section id="materiales" class="section">
+    <div class="section-head">
+      <p class="eyebrow mono">03 / materiales</p>
+      <h2>Precios vivos de materiales</h2>
+      <p class="lead small" id="price-note"></p>
+    </div>
+    <div class="materials" id="materials"></div>
+  </section>
+
+  <!-- CÓMO FUNCIONA -->
+  <section class="section steps">
+    <div class="step"><span class="mono">01</span><h3>Sube</h3><p>Tu archivo STL o una idea. Si no tienes modelo, lo diseñamos.</p></div>
+    <div class="step"><span class="mono">02</span><h3>Cotiza</h3><p>Material, color, calidad y tamaño. El precio se calcula al instante.</p></div>
+    <div class="step"><span class="mono">03</span><h3>Imprime</h3><p>Confirmas por WhatsApp, imprimimos y enviamos a todo Colombia.</p></div>
+  </section>
+
+  <!-- galería a pantalla completa -->
+  <div class="lightbox" id="lightbox" hidden role="dialog" aria-modal="true" aria-label="Fotos y videos del trabajo">
+    <button type="button" class="lb-close" id="lb-close" aria-label="Cerrar">✕</button>
+    <button type="button" class="lb-nav lb-prev" id="lb-prev" aria-label="Anterior">‹</button>
+    <div class="lb-stage" id="lb-stage"></div>
+    <button type="button" class="lb-nav lb-next" id="lb-next" aria-label="Siguiente">›</button>
+    <div class="lb-bar">
+      <div><b id="lb-title"></b> <span id="lb-count" class="mono"></span></div>
+      <button type="button" class="btn btn-sm" id="lb-order">Pedir este trabajo</button>
+    </div>
+    <div class="lb-thumbs" id="lb-thumbs"></div>
+  </div>
+  <div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+
+  <!-- enviar por WhatsApp desde computador: la imagen se copia y se pega en el chat -->
+  <div class="share" id="share" hidden role="dialog" aria-modal="true" aria-labelledby="share-title">
+    <div class="share-card">
+      <button type="button" class="lb-close" id="share-close" aria-label="Cerrar">✕</button>
+      <h3 id="share-title">Enviar por WhatsApp</h3>
+      <img id="share-img" alt="Imagen que vas a enviar">
+      <p class="share-status" id="share-status" role="status" aria-live="polite"></p>
+      <div class="share-actions">
+        <button type="button" class="btn" id="share-wa">Abrir WhatsApp</button>
+        <button type="button" class="btn btn-ghost" id="share-copy">Copiar imagen</button>
+        <a class="btn btn-ghost" id="share-dl">Descargar</a>
+      </div>
+    </div>
+  </div>
+
+  <footer id="contacto" class="footer">
+    <div>
+      <a href="#" class="brand"><img src="logo.svg" class="brand-mark" alt="" width="30" height="30"><span data-bind="nombre">HHH3D</span></a>
+      <p data-bind="eslogan"></p>
+    </div>
+    <div class="contact mono">
+      <a id="c-wa" target="_blank" rel="noopener">WhatsApp</a>
+      <a id="c-ig" target="_blank" rel="noopener">Instagram</a>
+      <a id="c-mail">Correo</a>
+    </div>
+    <p class="copy mono">© <span id="year"></span> · <span data-bind="ciudad"></span></p>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
+  <script src="config.js?v=44"></script>
+  <script src="parser3mf.js?v=3"></script>
+  <script src="app.js?v=44"></script>
+</body>
+</html>
