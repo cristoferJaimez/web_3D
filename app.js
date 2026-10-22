@@ -1609,8 +1609,9 @@
     const cm2 = parts.reduce((a, p) => a + p.area * s ** 2, 0) / 100;
     if (state.acabado === "pintado") {
       const n = A.pintura[state.pintura];
-      addExtra("pintura", `Pintura a mano ${n.nombre.toLowerCase()}: ${Math.round(cm2 * q)} cm²`,
-        (cm2 / 100) * n.min_por_100cm2 * q, (cm2 / 100) * n.insumos_por_100cm2 * q);
+      const vis = cm2 * (A.pintura.area_visible || 1); // solo lo que se ve se pinta
+      addExtra("pintura", `Pintura a mano ${n.nombre.toLowerCase()}: ${Math.round(vis * q)} cm² visibles`,
+        ((n.min_fijos || 0) + (vis / 100) * n.min_por_100cm2) * q, (vis / 100) * n.insumos_por_100cm2 * q);
     }
 
     // letrero con iluminación LED: materiales + instalación
@@ -1906,7 +1907,7 @@
     ));
     const pc = $("#paint-chips");
     pc.hidden = state.acabado !== "pintado";
-    pc.replaceChildren(...Object.entries(C.acabados.pintura).map(([k, n]) =>
+    pc.replaceChildren(...Object.entries(C.acabados.pintura).filter(([, n]) => typeof n === "object").map(([k, n]) =>
       chip(n.nombre, k === state.pintura, () => { state.pintura = k; renderFinish(); update(); })
     ));
     const desc = {

@@ -128,9 +128,12 @@ window.CONFIG = {
 
   acabados: {
     min_cambio_filamento: 4,  // sin AMS: descargar y cargar filamento entre placas de distinto color
+    // Pintura: tiempo fijo por pedido (preparar, imprimar, secar, retocar) + tiempo por área visible.
+    // Insumos: spray imprimante ~$25.000 rinde ~1 m²; acrílicos y barniz aparte.
     pintura: {
-      basica: { nombre: "Básica", desc: "Imprimación y 1 a 3 colores base", min_por_100cm2: 15, insumos_por_100cm2: 1500 },
-      detallada: { nombre: "Detallada", desc: "Varios colores, sombras, lavados y detalles finos", min_por_100cm2: 40, insumos_por_100cm2: 3000 },
+      area_visible: 0.75,     // parte de la superficie del archivo que realmente se pinta
+      basica: { nombre: "Básica", desc: "Imprimación y 1 a 3 colores base", min_fijos: 20, min_por_100cm2: 4, insumos_por_100cm2: 400 },
+      detallada: { nombre: "Detallada", desc: "Varios colores, sombras, lavados y detalles finos", min_fijos: 40, min_por_100cm2: 12, insumos_por_100cm2: 800 },
     },
   },
 
