@@ -8,7 +8,7 @@ window.CONFIG = {
     eslogan: "Impresión 3D a pedido en Colombia",
     ciudad: "Bogotá, Colombia",
     whatsapp: "573133361042",          // con indicativo 57, sin + ni espacios
-    instagram: "tu_usuario",
+    instagram: "hhh.3d.laminador",
     email: "jaimez07788@gmail.com",
   },
 
