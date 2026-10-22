@@ -27,6 +27,7 @@
     acabado: "uno", // uno | placas | pintado
     pintura: "basica",
     pieceColors: {}, // "placa:pieza" → color
+    notes: "", // observaciones del cliente para el pedido
     offPlates: new Set(), // placas que el cliente no quiere imprimir
     baseColor: 0, // color de las piezas sin pintar en multicolor
     led: { on: false, tipo: "blanco", metros: null }, // metros null = sugerido por la pieza
@@ -1865,15 +1866,16 @@
       if (c.recargo) s.dataset.extra = "";
       s.onclick = () => {
         state.color = i;
-        // multicolor sin piezas pintadas todavía: el color elegido se aplica a todo el modelo
-        if (state.acabado === "multi" && !Object.keys(state.pieceColors).length) state.baseColor = i;
         renderSwatches();
         update();
       };
       return s;
     }));
     const c = cols[state.color];
-    const painting = state.acabado === "multi" && Object.keys(state.pieceColors).length > 0;
+    const painting = state.acabado === "multi"; // en multicolor la paleta es siempre el pincel
+    const all = $("#paint-all");
+    all.hidden = !painting;
+    all.textContent = `Pintar todas las piezas de ${c.nombre}`;
     $("#color-name").textContent = (painting ? "🖌 Pincel: " : "") + c.nombre + (c.recargo ? ` · +${Math.round(c.recargo * 100)}%` : "");
   }
 
@@ -1885,6 +1887,7 @@
         if (k === "multi" && state.acabado !== "multi") state.baseColor = state.color;
         state.acabado = k;
         renderFinish();
+        renderSwatches();
         update();
       })
     ));
@@ -1940,6 +1943,12 @@
     renderMaterials();
     renderFinish();
     renderLed();
+    $("#paint-all").onclick = () => {
+      state.baseColor = state.color;
+      state.pieceColors = {};
+      renderSwatches();
+      update();
+    };
     $("#led-on").onchange = (e) => { state.led.on = e.target.checked; renderLed(); update(); };
     const setLed = (v) => {
       state.led.metros = Math.max(0.5, Math.min(50, Math.round((+v || 0.5) * 2) / 2));
@@ -1981,6 +1990,7 @@
       try { blob = quoteImage(state.lastQuote); } catch (err) { console.error(err); }
       sendWhatsApp(state.waText, blob, `cotizacion-${slug(C.negocio.nombre)}.png`);
     });
+    $("#notes").oninput = (e) => { state.notes = e.target.value; };
     $("#pn-prev").onclick = () => stepPlate(-1);
     $("#pn-next").onclick = () => stepPlate(1);
 
@@ -2067,8 +2077,17 @@
   }
 
   // blob: la imagen ya lista (Blob) o null. Debe llamarse directo desde el clic.
-  function sendWhatsApp(text, blob, fileName) {
-    const waUrl = `https://wa.me/${C.negocio.whatsapp}?text=${encodeURIComponent(text)}`;
+  // agrega las observaciones del cliente al final del mensaje
+  const withNotes = (text) => {
+    const n = (state.notes || "").trim();
+    return n ? `${text}
+• Observaciones: ${n}` : text;
+  };
+  const waLink = (text) => `https://wa.me/${C.negocio.whatsapp}?text=${encodeURIComponent(withNotes(text))}`;
+
+  function sendWhatsApp(baseText, blob, fileName) {
+    const text = withNotes(baseText);
+    const waUrl = waLink(baseText);
     const file = blob ? new File([blob], fileName, { type: blob.type }) : null;
     const touch = matchMedia("(pointer: coarse)").matches;
     if (file && touch && navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -2083,7 +2102,7 @@
     }
     // computador: ventana con la imagen. Se copia AHORA, mientras la página tiene el foco
     // (si primero se abre WhatsApp, el navegador ya no deja copiar).
-    openShareDialog(waUrl, blob, fileName);
+    openShareDialog(baseText, blob, fileName);
   }
 
   function copyImage(blob) {
@@ -2093,7 +2112,10 @@
   }
 
   let shareUrl = null;
-  function openShareDialog(waUrl, blob, fileName) {
+  function openShareDialog(baseText, blob, fileName) {
+    const notes = $("#share-notes");
+    notes.value = state.notes || "";
+    notes.oninput = () => { state.notes = notes.value; $("#notes").value = notes.value; };
     const dlg = $("#share");
     if (shareUrl) URL.revokeObjectURL(shareUrl);
     shareUrl = URL.createObjectURL(blob);
@@ -2124,7 +2146,7 @@
     copyImage(blob).then(() => setStatus(true), () => setStatus(false));
     $("#share-copy").onclick = () => copyImage(blob).then(() => setStatus(true), () => setStatus(false));
     $("#share-wa").onclick = () => {
-      const win = window.open(waUrl, "_blank");
+      const win = window.open(waLink(baseText), "_blank"); // con las observaciones escritas en la ventana
       if (win) win.opener = null;
       closeShareDialog();
       toast(copied

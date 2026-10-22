@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=61">
+  <link rel="stylesheet" href="styles.css?v=63">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -119,6 +119,7 @@
         <div class="field">
           <label>Color <span class="hint-inline" id="color-name"></span></label>
           <div class="swatches" id="swatches"></div>
+          <button type="button" class="chip paint-all" id="paint-all" hidden></button>
         </div>
 
         <div class="field">
@@ -188,6 +189,10 @@
             <summary>Ver desglose</summary>
             <ul id="r-breakdown" class="mono"></ul>
           </details>
+          <div class="field notes-field">
+            <label for="notes">Observaciones <span class="hint-inline">(opcional)</span></label>
+            <textarea id="notes" rows="2" maxlength="500" placeholder="Ej.: lo necesito para el viernes, la placa 3 en otro tono…"></textarea>
+          </div>
           <a id="wa-btn" class="btn btn-block" target="_blank" rel="noopener">Pedir por WhatsApp</a>
           <p class="hint">Estimación automática. El precio final se confirma al revisar el archivo.</p>
         </div>
@@ -243,6 +248,8 @@
       <button type="button" class="lb-close" id="share-close" aria-label="Cerrar">✕</button>
       <h3 id="share-title">Enviar por WhatsApp</h3>
       <img id="share-img" alt="Imagen que vas a enviar">
+      <label class="share-notes-label" for="share-notes">¿Quieres decirnos algo más? <span>(opcional)</span></label>
+      <textarea id="share-notes" rows="2" maxlength="500" placeholder="Ej.: lo necesito para el viernes, prefiero recoger en Bogotá…"></textarea>
       <p class="share-status" id="share-status" role="status" aria-live="polite"></p>
       <div class="share-actions">
         <button type="button" class="btn" id="share-wa">Abrir WhatsApp</button>
@@ -269,8 +276,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-  <script src="config.js?v=61"></script>
+  <script src="config.js?v=63"></script>
   <script src="parser3mf.js?v=3"></script>
-  <script src="app.js?v=61"></script>
+  <script src="app.js?v=63"></script>
 </body>
 </html>
