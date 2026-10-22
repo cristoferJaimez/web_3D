@@ -25,7 +25,9 @@ const COLUMNAS = ["Pedido", "Fecha", "Mes", "Cliente", "Celular", "Archivo(s)", 
   "Abonado", "Saldo", "Entrega", "Observaciones", "Detalle",
   // desglose del costo (columnas U a AC)
   "Filamento ($)", "Energía (kWh)", "Energía ($)", "Máquina ($)", "Mano de obra (min)",
-  "Mano de obra ($)", "Insumos ($)", "Reserva fallos ($)", "Margen ($)"];
+  "Mano de obra ($)", "Insumos ($)", "Reserva fallos ($)", "Margen ($)",
+  // entrega (columnas AD a AG)
+  "Tipo de entrega", "Ciudad", "Dirección", "Envío ($)"];
 
 function doPost(e) {
   try {
@@ -94,7 +96,8 @@ function registrarPedido(d) {
       d.entrega ? new Date(d.entrega) : "",
       t(d.observaciones, 500), t(d.detalle, 4000),
       num(d.filamento), num(d.kwh), num(d.energia), num(d.maquina), num(d.minutos),
-      num(d.manoObra), num(d.insumos), num(d.reserva), num(d.margen)]);
+      num(d.manoObra), num(d.insumos), num(d.reserva), num(d.margen),
+      t(d.tipoEntrega, 60), t(d.ciudad, 60), t(d.direccion, 300), num(d.envio)]);
     const r = sh.getLastRow();
     sh.getRange(r, 14).setFormula(`=M${r}-L${r}`); // utilidad
     sh.getRange(r, 17).setFormula(`=M${r}-P${r}`); // saldo
@@ -130,7 +133,7 @@ function prepararLibro(ss) {
   sh.getRange(1, 1, 1, COLUMNAS.length).setValues([COLUMNAS])
     .setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
   sh.setFrozenRows(1);
-  [130, 125, 70, 160, 110, 220, 170, 200, 60, 70, 60, 90, 90, 90, 120, 90, 90, 95, 240, 300, 95, 90, 90, 90, 110, 110, 90, 110, 90]
+  [130, 125, 70, 160, 110, 220, 170, 200, 60, 70, 60, 90, 90, 90, 120, 90, 90, 95, 240, 300, 95, 90, 90, 90, 110, 110, 90, 110, 90, 150, 130, 260, 90]
     .forEach((w, i) => sh.setColumnWidth(i + 1, w));
   formatoPedidos(sh);
   crearResumen(ss);
@@ -150,6 +153,8 @@ function formatoPedidos(sh) {
   sh.getRange(`V2:V${filas + 1}`).setNumberFormat("0.00");        // kWh
   sh.getRange(`Y2:Y${filas + 1}`).setNumberFormat("0");           // minutos
   sh.getRange(1, 21, 1, 9).setBackground("#1b1f2a").setFontColor("#b9a8ff").setFontWeight("bold"); // bloque de costos
+  sh.getRange(1, 30, 1, 4).setBackground("#10243a").setFontColor("#8cc8ff").setFontWeight("bold"); // bloque de entrega
+  sh.getRange(`AG2:AG${filas + 1}`).setNumberFormat("$ #,##0");
   const rango = sh.getRange(2, 15, filas, 1);
   rango.setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(ESTADOS, true).setAllowInvalid(false).build());
   const color = { "Cotización": "#fff4c2", "En proceso": "#d9ecff", Imprimiendo: "#e6dcff", Listo: "#d8f5c8", Entregado: "#c8f0d8", "No concretado": "#e3e3e3" };
@@ -181,7 +186,8 @@ function crearResumen(ss) {
     ["Costo filamento", `=SUMIFS(Pedidos!U2:U,${venta})`], ["Energía (kWh)", `=SUMIFS(Pedidos!V2:V,${venta})`, "#,##0.0"],
     ["Costo energía", `=SUMIFS(Pedidos!W2:W,${venta})`], ["Desgaste máquina", `=SUMIFS(Pedidos!X2:X,${venta})`],
     ["Mano de obra (h)", `=SUMIFS(Pedidos!Y2:Y,${venta})/60`, "#,##0.0"], ["Mano de obra ($)", `=SUMIFS(Pedidos!Z2:Z,${venta})`],
-    ["Insumos", `=SUMIFS(Pedidos!AA2:AA,${venta})`], ["Reserva fallos", `=SUMIFS(Pedidos!AB2:AB,${venta})`]];
+    ["Insumos", `=SUMIFS(Pedidos!AA2:AA,${venta})`], ["Reserva fallos", `=SUMIFS(Pedidos!AB2:AB,${venta})`],
+    ["Envíos (pagados a transportadora)", `=SUMIFS(Pedidos!AG2:AG,${venta})`]];
   tot.forEach(([k, f, fmt], i) => {
     rs.getRange(i + 2, 11).setValue(k);
     if (f) rs.getRange(i + 2, 12).setFormula(f).setNumberFormat(fmt || "$ #,##0");
@@ -218,10 +224,10 @@ function crearGanancias(ss) {
   });
 
   const cab = ["Pedido", "Fecha", "Cliente", "Producto", "Estado", "Vendido en", "Filamento", "Luz", "Máquina",
-    "Tu trabajo", "Otros (insumos y reserva)", "Gastos totales", "Ganancia neta", "% de ganancia", "Te queda a ti"];
+    "Tu trabajo", "Otros (insumos, envío y reserva)", "Gastos totales", "Ganancia neta", "% de ganancia", "Te queda a ti"];
   g.getRange(7, 1, 1, cab.length).setValues([cab]).setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
   g.getRange("A8").setFormula(`=IFERROR(SORT(FILTER({Pedidos!A2:A,Pedidos!B2:B,Pedidos!D2:D,Pedidos!F2:F,Pedidos!O2:O,` +
-    `Pedidos!M2:M,Pedidos!U2:U,Pedidos!W2:W,Pedidos!X2:X,Pedidos!Z2:Z,Pedidos!AA2:AA+Pedidos!AB2:AB,Pedidos!L2:L,` +
+    `Pedidos!M2:M,Pedidos!U2:U,Pedidos!W2:W,Pedidos!X2:X,Pedidos!Z2:Z,Pedidos!AA2:AA+Pedidos!AB2:AB+Pedidos!AG2:AG,Pedidos!L2:L,` +
     `Pedidos!M2:M-Pedidos!L2:L,IFERROR((Pedidos!M2:M-Pedidos!L2:L)/Pedidos!M2:M,0),Pedidos!M2:M-Pedidos!L2:L+Pedidos!Z2:Z},` +
     `Pedidos!A2:A<>"",${venta}),2,FALSE),"Aún no hay pedidos confirmados")`);
   g.getRange("B8:B").setNumberFormat("dd/mm/yyyy");

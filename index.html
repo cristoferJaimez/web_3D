@@ -18,7 +18,7 @@
       document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=91">
+  <link rel="stylesheet" href="styles.css?v=92">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -297,6 +297,12 @@
         <label><span class="lbl">Tu nombre</span><input id="share-name" maxlength="80" autocomplete="name" placeholder="Nombre y apellido"></label>
         <label><span class="lbl">Celular <em>(opcional)</em></span><input id="share-phone" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="300 123 4567"></label>
       </div>
+      <div class="share-addr" id="share-addr" hidden>
+        <p class="share-addr-title">📍 ¿A dónde te lo enviamos?</p>
+        <label><span class="lbl">Ciudad o municipio</span><input id="addr-city" maxlength="60" autocomplete="address-level2" placeholder="Ej.: Medellín, Antioquia"></label>
+        <label><span class="lbl">Dirección</span><input id="addr-line" maxlength="120" autocomplete="street-address" placeholder="Ej.: Calle 45 # 12-30"></label>
+        <label class="full"><span class="lbl">Indicaciones <em>(opcional)</em></span><input id="addr-extra" maxlength="160" placeholder="Barrio, apartamento, a quién se entrega…"></label>
+      </div>
       <label class="share-notes-label" for="share-notes">¿Quieres decirnos algo más? <span>(opcional)</span></label>
       <textarea id="share-notes" rows="2" maxlength="500" placeholder="Ej.: lo necesito para el viernes, prefiero recoger en Bogotá…"></textarea>
       <div class="share-file" id="share-file" hidden role="status" aria-live="polite"></div>
@@ -326,8 +332,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-  <script src="config.js?v=91"></script>
+  <script src="config.js?v=92"></script>
   <script src="parser3mf.js?v=3"></script>
-  <script src="app.js?v=91"></script>
+  <script src="app.js?v=92"></script>
 </body>
 </html>

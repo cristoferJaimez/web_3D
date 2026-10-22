@@ -1679,7 +1679,8 @@
       parts, allParts, extras, uniones, packed, total, s, cm2, costoProd: exactos - margen,
       // desglose del pedido completo (todas las unidades) para la hoja de control
       desglose: { filamento: t("filamento"), kwh: t("kwh"), energia: t("energia"), maquina: t("maquina"),
-        minutos: t("minutos") + exMin, manoObra, insumos: exIns, reserva: t("riesgo"), margen }, minimo: total - bruto, colores: coloresUsados,
+        minutos: t("minutos") + exMin, manoObra, insumos: exIns - (ship ? ship.valor : 0), reserva: t("riesgo"), margen,
+        envio: ship ? ship.valor : 0 }, minimo: total - bruto, colores: coloresUsados,
       cambiosColor, purgaG, horasCambio,
       grams, meters: sum((p) => p.r.meters), hours: hours + horasCambio / q, layers: sum((p) => p.r.layers),
       lines: [
@@ -2226,7 +2227,9 @@
     const n = (state.notes || "").trim();
     const c = state.client || {};
     const head = state.orderId ? `Pedido ${state.orderId}${c.nombre ? ` · ${c.nombre}` : ""}\n` : "";
-    return head + text + (fileUrl ? `\n• Archivo para imprimir: ${fileUrl}` : "") + (n ? `\n• Observaciones: ${n}` : "");
+    const a = state.envio && state.envio.modo !== "taller" ? (state.client || {}) : {};
+    const dir = a.direccion ? `\n• Enviar a: ${a.direccion}, ${a.ciudad || ""}${a.indicaciones ? ` (${a.indicaciones})` : ""}` : "";
+    return head + text + dir + (fileUrl ? `\n• Archivo para imprimir: ${fileUrl}` : "") + (n ? `\n• Observaciones: ${n}` : "");
   };
   const waLink = (text, fileUrl) => `https://wa.me/${C.negocio.whatsapp}?text=${encodeURIComponent(composeText(text, fileUrl))}`;
 
@@ -2376,6 +2379,8 @@
       costo: Math.round(r.costoProd), total: r.total,
       ...Object.fromEntries(Object.entries(r.desglose).map(([k, v]) => [k, k === "kwh" ? Math.round(v * 100) / 100 : Math.round(v)])),
       entrega: addWorkdays(deliveryDays(r.hours * q)).toISOString(),
+      tipoEntrega: { taller: "Recojo en el taller", bogota: "Domicilio en Bogotá", nacional: "Envío nacional" }[state.envio.modo] +
+        (state.envio.modo === "nacional" ? ` (${(C.envio.zonas.find((z) => z.id === state.envio.zona) || {}).nombre || ""})` : ""),
     };
   }
 
@@ -2418,6 +2423,16 @@
     $("#share-phone").value = state.client.celular || "";
     $("#share-name").oninput = (e) => { state.client.nombre = e.target.value.trim(); $("#share-name").classList.remove("missing"); };
     $("#share-phone").oninput = (e) => { state.client.celular = e.target.value.trim(); };
+    // dirección de envío (solo si eligió domicilio o envío nacional)
+    const askAddr = !!order && state.envio.modo !== "taller";
+    $("#share-addr").hidden = !askAddr;
+    if (askAddr && state.envio.modo === "bogota" && !state.client.ciudad) state.client.ciudad = "Bogotá";
+    [["#addr-city", "ciudad"], ["#addr-line", "direccion"], ["#addr-extra", "indicaciones"]].forEach(([sel, k]) => {
+      const el = $(sel);
+      el.value = state.client[k] || "";
+      el.classList.remove("missing");
+      el.oninput = () => { state.client[k] = el.value.trim(); el.classList.remove("missing"); };
+    });
     const notes = $("#share-notes");
     notes.value = state.notes || "";
     notes.oninput = () => { state.notes = notes.value; $("#notes").value = notes.value; };
@@ -2493,9 +2508,18 @@
         $("#share-name").focus();
         return;
       }
+      if (askAddr) {
+        const falta = [["#addr-city", "ciudad"], ["#addr-line", "direccion"]].filter(([, k]) => !state.client[k]);
+        if (falta.length) {
+          falta.forEach(([sel]) => $(sel).classList.add("missing"));
+          $(falta[0][0]).focus();
+          return;
+        }
+      }
       if (order) {
         try { localStorage.setItem("cliente", JSON.stringify(state.client)); } catch (e) { /* sin almacenamiento */ }
         registerOrder({ ...order, cliente: state.client.nombre || "", celular: state.client.celular || "",
+          ciudad: askAddr ? state.client.ciudad || "" : "", direccion: askAddr ? [state.client.direccion, state.client.indicaciones].filter(Boolean).join(" · ") : "",
           url: fileUrl || "", observaciones: (state.notes || "").trim(), detalle: composeText(baseText, fileUrl) });
       }
       if (mobileShare) {

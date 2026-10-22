@@ -733,3 +733,16 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 @media (max-width: 800px) { .q-stats { grid-template-columns: 1fr; } }
 .plate.extra.embalaje i { background: #c08a4a; color: #fff; }
 .plate.extra.envio i { background: #2b6cb0; color: #fff; }
+
+/* ---------- dirección de envío ---------- */
+.share-addr { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; padding: .9rem; border-radius: 14px; border: 1px solid rgba(43, 108, 176, .45); background: rgba(43, 108, 176, .07); }
+.share-addr[hidden] { display: none; }
+.share-addr-title { grid-column: 1 / -1; font-weight: 600; }
+.share-addr label { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.share-addr label.full { grid-column: 1 / -1; }
+.share-addr .lbl { font-size: .9rem; color: var(--text); }
+.share-addr em { font-style: normal; color: var(--muted); }
+.share-addr input { width: 100%; min-width: 0; padding: .6rem .8rem; border-radius: 12px; background: var(--bg); color: var(--text); border: 1px solid var(--line); font: inherit; font-size: .9rem; }
+.share-addr input:focus { outline: none; border-color: var(--accent); }
+.share-addr input.missing { border-color: #ff6b6b; box-shadow: 0 0 0 3px rgba(255, 107, 107, .15); }
+@media (max-width: 520px) { .share-addr { grid-template-columns: 1fr; } }
