@@ -9,7 +9,7 @@ window.CONFIG = {
     ciudad: "Bogotá, Colombia",
     whatsapp: "573133361042",          // con indicativo 57, sin + ni espacios
     instagram: "tu_usuario",
-    email: "hola@tudominio.com",
+    email: "jaimez07788@gmail.com",
   },
 
   // Fecha en que revisaste los precios por última vez (se muestra en la web)
