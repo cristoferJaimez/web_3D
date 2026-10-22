@@ -1977,12 +1977,22 @@
   function renderHardware() {
     $("#hw-on").checked = state.herrajes.on;
     $("#hw-box").hidden = !state.herrajes.on;
-    let grupo = "";
-    $("#hw-list").innerHTML = C.herrajes.items.map((it) => `${it.grupo !== grupo ? `<h5 class="hw-group">${(grupo = it.grupo)}</h5>` : ""}
-      <div class="hw-row">
-        <span>${it.nombre}<small>📏 ${it.medida}</small><small>${money(it.precio * (1 + C.herrajes.margen))} c/u + instalación</small></span>
-        <div class="qty"><button type="button" data-hw="${it.id}" data-d="-1" aria-label="Menos">−</button><input type="number" min="0" max="200" value="${state.herrajes.qty[it.id] || 0}" data-hw-in="${it.id}" aria-label="Cantidad de ${it.nombre}"><button type="button" data-hw="${it.id}" data-d="1" aria-label="Más">+</button></div>
-      </div>`).join("");
+    // un grupo desplegable por tipo; quedan abiertos los que tienen algo elegido o que abrió el cliente
+    const grupos = [...new Set(C.herrajes.items.map((it) => it.grupo))];
+    state.herrajes.open = state.herrajes.open || { [grupos[0]]: true };
+    $("#hw-list").innerHTML = grupos.map((g) => {
+      const items = C.herrajes.items.filter((it) => it.grupo === g);
+      const n = items.reduce((a, it) => a + (state.herrajes.qty[it.id] || 0), 0);
+      const open = state.herrajes.open[g] || n > 0;
+      return `<details class="hw-group" data-group="${g}" ${open ? "open" : ""}>
+        <summary>${g}${n ? `<b>${n}</b>` : ""}</summary>
+        ${items.map((it) => `
+        <div class="hw-row">
+          <span>${it.nombre}<small>📏 ${it.medida}</small><small>${money(it.precio * (1 + C.herrajes.margen))} c/u + instalación</small></span>
+          <div class="qty"><button type="button" data-hw="${it.id}" data-d="-1" aria-label="Menos">−</button><input type="number" min="0" max="200" value="${state.herrajes.qty[it.id] || 0}" data-hw-in="${it.id}" aria-label="Cantidad de ${it.nombre}"><button type="button" data-hw="${it.id}" data-d="1" aria-label="Más">+</button></div>
+        </div>`).join("")}
+      </details>`;
+    }).join("");
   }
 
   function renderQualities() {
@@ -2014,6 +2024,10 @@
       const b = e.target.closest("[data-hw]");
       if (b) setHw(b.dataset.hw, (state.herrajes.qty[b.dataset.hw] || 0) + +b.dataset.d);
     });
+    $("#hw-list").addEventListener("toggle", (e) => {
+      const d = e.target.closest("details[data-group]");
+      if (d) state.herrajes.open[d.dataset.group] = d.open;
+    }, true);
     $("#hw-list").addEventListener("change", (e) => {
       const i = e.target.closest("[data-hw-in]");
       if (i) setHw(i.dataset.hwIn, i.value);
