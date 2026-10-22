@@ -1114,6 +1114,7 @@
       const sz = state.model.size, [bx, , bz] = C.maquina.volumen_mm;
       const small = Math.max(sz.x, sz.y, sz.z) * s < bx * 0.35;
       viewer.printer.setHeight(small ? bz * 0.8 : sz.y * s);
+      renderPlateNav(); // sin placas: ocultar la navegación del archivo anterior
       return;
     }
 
