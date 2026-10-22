@@ -22,7 +22,10 @@ const ESTADOS = ["Cotización", "En proceso", "Imprimiendo", "Listo", "Entregado
 const NO_VENTA = ["Cotización", "No concretado"];
 const COLUMNAS = ["Pedido", "Fecha", "Mes", "Cliente", "Celular", "Archivo(s)", "Enlace archivo",
   "Material / color", "Placas", "Peso (g)", "Horas", "Costo", "Total", "Utilidad", "Estado",
-  "Abonado", "Saldo", "Entrega", "Observaciones", "Detalle"];
+  "Abonado", "Saldo", "Entrega", "Observaciones", "Detalle",
+  // desglose del costo (columnas U a AC)
+  "Filamento ($)", "Energía (kWh)", "Energía ($)", "Máquina ($)", "Mano de obra (min)",
+  "Mano de obra ($)", "Insumos ($)", "Reserva fallos ($)", "Margen ($)"];
 
 function doPost(e) {
   try {
@@ -89,7 +92,9 @@ function registrarPedido(d) {
       t(d.cliente, 100), t(d.celular, 30), t(d.archivos, 300), t(d.url, 300), t(d.material, 200),
       num(d.placas), num(d.peso), num(d.horas), num(d.costo), num(d.total), "", "Cotización", 0, "",
       d.entrega ? new Date(d.entrega) : "",
-      t(d.observaciones, 500), t(d.detalle, 4000)]);
+      t(d.observaciones, 500), t(d.detalle, 4000),
+      num(d.filamento), num(d.kwh), num(d.energia), num(d.maquina), num(d.minutos),
+      num(d.manoObra), num(d.insumos), num(d.reserva), num(d.margen)]);
     const r = sh.getLastRow();
     sh.getRange(r, 14).setFormula(`=M${r}-L${r}`); // utilidad
     sh.getRange(r, 17).setFormula(`=M${r}-P${r}`); // saldo
@@ -125,10 +130,11 @@ function prepararLibro(ss) {
   sh.getRange(1, 1, 1, COLUMNAS.length).setValues([COLUMNAS])
     .setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
   sh.setFrozenRows(1);
-  [130, 125, 70, 160, 110, 220, 170, 200, 60, 70, 60, 90, 90, 90, 120, 90, 90, 95, 240, 300]
+  [130, 125, 70, 160, 110, 220, 170, 200, 60, 70, 60, 90, 90, 90, 120, 90, 90, 95, 240, 300, 95, 90, 90, 90, 110, 110, 90, 110, 90]
     .forEach((w, i) => sh.setColumnWidth(i + 1, w));
   formatoPedidos(sh);
   crearResumen(ss);
+  crearGanancias(ss);
 }
 
 function formatoPedidos(sh) {
@@ -140,6 +146,10 @@ function formatoPedidos(sh) {
   sh.getRange(2, 10, filas, 2).setNumberFormat("0.0");            // peso, horas
   ["L", "M", "N", "P", "Q"].forEach((c) => sh.getRange(`${c}2:${c}${filas + 1}`).setNumberFormat("$ #,##0"));
   sh.getRange(2, 18, filas, 1).setNumberFormat("dd/mm/yyyy");     // entrega
+  ["U", "W", "X", "Z", "AA", "AB", "AC"].forEach((c) => sh.getRange(`${c}2:${c}${filas + 1}`).setNumberFormat("$ #,##0"));
+  sh.getRange(`V2:V${filas + 1}`).setNumberFormat("0.00");        // kWh
+  sh.getRange(`Y2:Y${filas + 1}`).setNumberFormat("0");           // minutos
+  sh.getRange(1, 21, 1, 9).setBackground("#1b1f2a").setFontColor("#b9a8ff").setFontWeight("bold"); // bloque de costos
   const rango = sh.getRange(2, 15, filas, 1);
   rango.setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(ESTADOS, true).setAllowInvalid(false).build());
   const color = { "Cotización": "#fff4c2", "En proceso": "#d9ecff", Imprimiendo: "#e6dcff", Listo: "#d8f5c8", Entregado: "#c8f0d8", "No concretado": "#e3e3e3" };
@@ -165,15 +175,73 @@ function crearResumen(ss) {
   const tot = [["Pedidos", `=COUNTIFS(Pedidos!A2:A,"<>",${venta})`, "0"], ["Ventas", `=SUMIFS(Pedidos!M2:M,${venta})`],
     ["Costo", `=SUMIFS(Pedidos!L2:L,${venta})`], ["Utilidad", `=SUMIFS(Pedidos!N2:N,${venta})`],
     ["Cobrado", `=SUMIFS(Pedidos!P2:P,${venta})`], ["Por cobrar", `=SUMIFS(Pedidos!Q2:Q,${venta})`],
-    ["Cotizaciones", `=COUNTA(Pedidos!A2:A)`, "0"], ["% cierre", `=IFERROR(L2/L8,0)`, "0%"]];
+    ["Cotizaciones", `=COUNTA(Pedidos!A2:A)`, "0"], ["% cierre", `=IFERROR(L2/L8,0)`, "0%"],
+    ["", ""], ["GASTOS (confirmados)", ""],
+    ["Filamento usado (g)", `=SUMIFS(Pedidos!J2:J,${venta})`, "#,##0"], ["Horas de impresión", `=SUMIFS(Pedidos!K2:K,${venta})`, "#,##0.0"],
+    ["Costo filamento", `=SUMIFS(Pedidos!U2:U,${venta})`], ["Energía (kWh)", `=SUMIFS(Pedidos!V2:V,${venta})`, "#,##0.0"],
+    ["Costo energía", `=SUMIFS(Pedidos!W2:W,${venta})`], ["Desgaste máquina", `=SUMIFS(Pedidos!X2:X,${venta})`],
+    ["Mano de obra (h)", `=SUMIFS(Pedidos!Y2:Y,${venta})/60`, "#,##0.0"], ["Mano de obra ($)", `=SUMIFS(Pedidos!Z2:Z,${venta})`],
+    ["Insumos", `=SUMIFS(Pedidos!AA2:AA,${venta})`], ["Reserva fallos", `=SUMIFS(Pedidos!AB2:AB,${venta})`]];
   tot.forEach(([k, f, fmt], i) => {
     rs.getRange(i + 2, 11).setValue(k);
-    rs.getRange(i + 2, 12).setFormula(f).setNumberFormat(fmt || "$ #,##0");
+    if (f) rs.getRange(i + 2, 12).setFormula(f).setNumberFormat(fmt || "$ #,##0");
+    if (!f && k) rs.getRange(i + 2, 11).setFontWeight("bold");
   });
   rs.setFrozenRows(1);
   rs.setColumnWidths(1, 9, 105);
   rs.setColumnWidth(11, 110);
   rs.setColumnWidth(12, 120);
+}
+
+/* Vista fácil para quien no sabe contabilidad: cuánto vendiste, cuánto gastaste y cuánto ganaste,
+   por pedido y por producto. Solo cuenta pedidos confirmados (de "En proceso" en adelante). */
+function crearGanancias(ss) {
+  const g = ss.insertSheet("Ganancias");
+  const venta = `Pedidos!O2:O<>"Cotización",Pedidos!O2:O<>"No concretado"`;
+  const mes = `Pedidos!C2:C=TEXT(TODAY(),"yyyy-mm")`;
+  const sumaMes = (col) => `=SUM(IFERROR(FILTER(${col},Pedidos!A2:A<>"",${mes},${venta}),0))`;
+  g.getRange("A1").setValue("💰 ¿Cuánto estoy ganando?").setFontSize(16).setFontWeight("bold");
+  g.getRange("A2").setValue("Solo cuenta pedidos confirmados (de «En proceso» en adelante). Las cotizaciones y los no concretados no suman.")
+    .setFontColor("#666666");
+  const tarjetas = [
+    ["Vendiste este mes", sumaMes("Pedidos!M2:M"), "Lo que te pagan los clientes"],
+    ["Gastaste este mes", sumaMes("Pedidos!L2:L"), "Filamento, luz, máquina, tu trabajo y reserva por fallos"],
+    ["Ganancia neta del mes", sumaMes("Pedidos!M2:M-Pedidos!L2:L"), "Vendido menos gastado: lo que gana el negocio"],
+    ["Te queda a ti este mes", sumaMes("Pedidos!M2:M-Pedidos!L2:L+Pedidos!Z2:Z"), "Ganancia neta + el pago por tu trabajo (si lo haces tú)"],
+  ];
+  tarjetas.forEach(([t, f, nota], i) => {
+    const col = 1 + i * 3;
+    g.getRange(3, col).setValue(t).setFontWeight("bold").setFontColor("#555555");
+    g.getRange(4, col).setFormula(f).setNumberFormat("$ #,##0").setFontSize(18).setFontWeight("bold")
+      .setFontColor(i === 1 ? "#c0392b" : "#1e8449");
+    g.getRange(5, col).setValue(nota).setFontSize(8).setFontColor("#888888");
+  });
+
+  const cab = ["Pedido", "Fecha", "Cliente", "Producto", "Estado", "Vendido en", "Filamento", "Luz", "Máquina",
+    "Tu trabajo", "Otros (insumos y reserva)", "Gastos totales", "Ganancia neta", "% de ganancia", "Te queda a ti"];
+  g.getRange(7, 1, 1, cab.length).setValues([cab]).setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
+  g.getRange("A8").setFormula(`=IFERROR(SORT(FILTER({Pedidos!A2:A,Pedidos!B2:B,Pedidos!D2:D,Pedidos!F2:F,Pedidos!O2:O,` +
+    `Pedidos!M2:M,Pedidos!U2:U,Pedidos!W2:W,Pedidos!X2:X,Pedidos!Z2:Z,Pedidos!AA2:AA+Pedidos!AB2:AB,Pedidos!L2:L,` +
+    `Pedidos!M2:M-Pedidos!L2:L,IFERROR((Pedidos!M2:M-Pedidos!L2:L)/Pedidos!M2:M,0),Pedidos!M2:M-Pedidos!L2:L+Pedidos!Z2:Z},` +
+    `Pedidos!A2:A<>"",${venta}),2,FALSE),"Aún no hay pedidos confirmados")`);
+  g.getRange("B8:B").setNumberFormat("dd/mm/yyyy");
+  g.getRange("F8:M").setNumberFormat("$ #,##0");
+  g.getRange("N8:N").setNumberFormat("0%");
+  g.getRange("O8:O").setNumberFormat("$ #,##0");
+  g.getRange("L7:L").setFontColor("#c0392b");
+  g.getRange("M7:M").setFontColor("#1e8449").setFontWeight("bold");
+  g.setFrozenRows(7);
+  [130, 90, 140, 220, 100, 100, 90, 70, 80, 90, 120, 110, 110, 90, 110].forEach((w, i) => g.setColumnWidth(i + 1, w));
+
+  // por producto: qué te deja más plata
+  const pp = ss.insertSheet("Por producto");
+  pp.getRange("A1").setValue("📦 ¿Qué producto me deja más?").setFontSize(16).setFontWeight("bold");
+  pp.getRange("A2").setValue("Suma de todos los pedidos confirmados de cada producto, de mayor a menor ganancia.").setFontColor("#666666");
+  pp.getRange("A4").setFormula(`=IFERROR(QUERY(Ganancias!A8:O,"select D, count(D), sum(F), sum(L), sum(M), sum(O) where D is not null and D <> '' group by D order by sum(M) desc label D 'Producto', count(D) 'Veces vendido', sum(F) 'Vendido en', sum(L) 'Gastos', sum(M) 'Ganancia neta', sum(O) 'Te queda a ti'",0),"Aún no hay pedidos confirmados")`);
+  pp.getRange("A4:F4").setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
+  pp.getRange("C5:F").setNumberFormat("$ #,##0");
+  pp.setFrozenRows(4);
+  [260, 110, 110, 110, 120, 120].forEach((w, i) => pp.setColumnWidth(i + 1, w));
 }
 
 // Pasa una hoja ya creada al flujo nuevo de estados (ejecútala una vez si ya tenías la hoja).
@@ -187,10 +255,12 @@ function actualizarHoja() {
     const r = sh.getRange(2, 15, n, 1);
     r.setValues(r.getValues().map(([v]) => [cambio[v] || v]));
   }
+  sh.getRange(1, 1, 1, COLUMNAS.length).setValues([COLUMNAS])
+    .setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
   formatoPedidos(sh);
-  const viejo = ss.getSheetByName("Resumen");
-  if (viejo) ss.deleteSheet(viejo);
+  ["Resumen", "Ganancias", "Por producto"].forEach((n) => { const v = ss.getSheetByName(n); if (v) ss.deleteSheet(v); });
   crearResumen(ss);
+  crearGanancias(ss);
   CacheService.getScriptCache().remove("cola");
   Logger.log("Hoja actualizada: " + ss.getUrl());
 }

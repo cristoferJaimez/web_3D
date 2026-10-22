@@ -1650,7 +1650,10 @@
     const pct = (x) => `${Math.round(x * 100)}%`;
     const colorTxt = coloresUsados > 1 ? ` · ${coloresUsados} colores` : color.recargo ? ` (+${pct(color.recargo)} color)` : "";
     return {
-      parts, allParts, extras, uniones, packed, total, s, cm2, costoProd: exactos - margen, minimo: total - bruto, colores: coloresUsados,
+      parts, allParts, extras, uniones, packed, total, s, cm2, costoProd: exactos - margen,
+      // desglose del pedido completo (todas las unidades) para la hoja de control
+      desglose: { filamento: t("filamento"), kwh: t("kwh"), energia: t("energia"), maquina: t("maquina"),
+        minutos: t("minutos") + exMin, manoObra, insumos: exIns, reserva: t("riesgo"), margen }, minimo: total - bruto, colores: coloresUsados,
       cambiosColor, purgaG, horasCambio,
       grams, meters: sum((p) => p.r.meters), hours: hours + horasCambio / q, layers: sum((p) => p.r.layers),
       lines: [
@@ -2223,6 +2226,7 @@
       archivos: (state.sourceFiles || []).map((f) => f.name).join(", ") || state.model.name,
       placas: r.parts.length, peso: Math.round(r.grams * q), horas: Math.round(r.hours * q * 10) / 10,
       costo: Math.round(r.costoProd), total: r.total,
+      ...Object.fromEntries(Object.entries(r.desglose).map(([k, v]) => [k, k === "kwh" ? Math.round(v * 100) / 100 : Math.round(v)])),
       entrega: addWorkdays(deliveryDays(r.hours * q)).toISOString(),
     };
   }
