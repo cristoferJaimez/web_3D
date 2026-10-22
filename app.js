@@ -680,7 +680,7 @@
       area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
     }
     // medidas en mm: ancho (X), fondo (Z) y alto (Y)
-    return { volume: Math.abs(vol), area, minY, maxY, dims: [maxX - minX, maxZ - minZ, maxY - minY] };
+    return { volume: Math.abs(vol), area, minY, maxY, minX, minZ, dims: [maxX - minX, maxZ - minZ, maxY - minY] };
   }
 
   // "8,9 × 5,2 × 12 cm" a partir de [ancho, fondo, alto] en mm
@@ -731,6 +731,72 @@
       if (h.length % 2) h.pop();
     }
     return { cols: hits, x0, z0, cw, cd, cen, ar };
+  }
+
+  // "Dividir en placas" con un archivo de varias piezas: si cada pieza cabe sola,
+  // se reparten ENTERAS en las placas necesarias (sin cortes ni ensamble).
+  function packedParts(s) {
+    const m = state.model;
+    if (m.multi || state.fit !== "dividir" || !m.pieces || m.pieces.length < 2) return null;
+    const [bx, by, bz] = C.maquina.volumen_mm;
+    const sz = m.size;
+    if (sz.x * s <= bx && sz.z * s <= by && sz.y * s <= bz) return null; // cabe todo junto
+    if (m.pieces.some((pc) => pc.dims[0] * s > bx || pc.dims[1] * s > by || pc.dims[2] * s > bz)) return null; // alguna hay que cortarla
+    m.packCache = m.packCache || {};
+    if (m.packCache[s]) return m.packCache[s];
+
+    // acomodar en filas por cama (medidas ya escaladas), con 6 mm entre piezas
+    const gap = 6;
+    const order = m.pieces.map((pc, j) => j).sort((a, c) => m.pieces[c].dims[1] - m.pieces[a].dims[1]);
+    const plates = [];
+    const place = (pl, j) => {
+      const w = m.pieces[j].dims[0] * s, d = m.pieces[j].dims[1] * s;
+      for (const row of pl.rows) {
+        if (row.x + w <= bx && d <= row.h) { pl.items.push({ j, x: row.x, z: row.z }); row.x += w + gap; return true; }
+      }
+      const last = pl.rows[pl.rows.length - 1];
+      const z = last ? last.z + last.h + gap : 0;
+      if (z + d > by) return false;
+      pl.rows.push({ z, h: d, x: w + gap });
+      pl.items.push({ j, x: 0, z });
+      return true;
+    };
+    for (const j of order) {
+      if (!plates.some((pl) => place(pl, j))) {
+        const pl = { rows: [], items: [] };
+        plates.push(pl);
+        place(pl, j);
+      }
+    }
+    if (plates.length < 2) return null;
+
+    // una malla por placa (en unidades del modelo) con sus piezas
+    const src = m.geo.attributes.position.array;
+    const parts = plates.map((pl, i) => {
+      const total = pl.items.reduce((n, it) => n + m.pieces[it.j].count * 9, 0);
+      const out = new Float32Array(total);
+      const pieces = [];
+      let o = 0;
+      for (const { j, x, z } of pl.items) {
+        const pc = m.pieces[j];
+        const dx = x / s - pc.minX, dz = z / s - pc.minZ, dy = -pc.minY;
+        pieces.push({ name: pc.name, start: o / 9, count: pc.count });
+        for (let k = pc.start * 9, end = (pc.start + pc.count) * 9; k < end; k += 3) {
+          out[o++] = src[k] + dx;
+          out[o++] = src[k + 1] + dy;
+          out[o++] = src[k + 2] + dz;
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(out, 3));
+      const pg = prepareGeometry(geo, false, pieces);
+      return {
+        vol: pg.volume, area: pg.area, minY: 0, h: pg.size.y, geo: pg.geo, label: i + 1, pieces: pg.pieces,
+        b: { x0: -pg.size.x / 2, x1: pg.size.x / 2, y0: 0, y1: pg.size.y, z0: -pg.size.z / 2, z1: pg.size.z / 2 },
+      };
+    });
+    parts.packed = true;
+    return (m.packCache[s] = parts);
   }
 
   // Cuántas placas hacen falta en cada eje [x, alto, fondo]
@@ -947,21 +1013,24 @@
   }
 
   function textSprite(text, height = 30) {
+    const font = "600 64px 'JetBrains Mono', monospace";
     const cv = document.createElement("canvas");
-    cv.width = 512;
+    const probe = cv.getContext("2d");
+    probe.font = font;
+    cv.width = Math.max(512, Math.ceil(probe.measureText(text).width) + 80);
     cv.height = 128;
     const g = cv.getContext("2d");
     g.fillStyle = "rgba(8,9,12,.85)";
     g.beginPath();
-    g.roundRect(4, 4, 504, 120, 28);
+    g.roundRect(4, 4, cv.width - 8, 120, 28);
     g.fill();
     g.fillStyle = "#c6ff3d";
-    g.font = "600 64px 'JetBrains Mono', monospace";
+    g.font = font;
     g.textAlign = "center";
     g.textBaseline = "middle";
-    g.fillText(text, 256, 68);
+    g.fillText(text, cv.width / 2, 68);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false }));
-    sp.scale.set(height * 4, height, 1);
+    sp.scale.set(height * (cv.width / 128), height, 1);
     return sp;
   }
 
@@ -1014,7 +1083,7 @@
 
   // Dibuja la pieza en la impresora, o cada placa sobre su propia cama si se dividió
   function renderView(parts, s) {
-    const key = parts.length + "|" + s + "|" + state.fit;
+    const key = parts.length + "|" + s + "|" + state.fit + "|" + !!parts.packed;
     if (viewer.viewKey === key) return;
     viewer.viewKey = key;
 
@@ -1080,7 +1149,9 @@
       const fronts = Array.from({ length: nPieces }, () =>
         new THREE.MeshStandardMaterial({ color: viewer.material.color, roughness: 0.5, metalness: 0.05, clippingPlanes: planes }));
       // el interior que se ve por el corte se pinta de color acento: así se nota la cara de corte
-      const backMat = new THREE.MeshBasicMaterial({ color: ACCENT, side: THREE.BackSide, clippingPlanes: planes });
+      // solo las piezas cortadas muestran la cara de corte en verde; las enteras, su interior oscuro
+      const isCut = !parts.packed && !state.model.multi;
+      const backMat = new THREE.MeshBasicMaterial({ color: isCut ? ACCENT : 0x1b1d24, side: THREE.BackSide, clippingPlanes: planes });
       const front = nPieces > 1 ? fronts : fronts[0];
       const back = nPieces > 1 ? fronts.map(() => backMat) : backMat;
       viewer.partMats.push(fronts);
@@ -1094,7 +1165,7 @@
         mesh.position.set(ox - cx, -lift, oz - cz);
       }
 
-      const label = textSprite(`PLACA ${p.label || i + 1}`);
+      const label = textSprite(`PLACA ${p.label || i + 1} · ${fmtDims([(b.x1 - b.x0) * s, (b.z1 - b.z0) * s, p.h * s])}`);
       label.position.set(ox, Math.max(top, 40) + 30, oz);
       sub.add(label);
       group.add(sub);
@@ -1471,7 +1542,8 @@
   function calculate() {
     const s = state.scale / 100, q = state.qty, K = C.costos, A = C.acabados;
     const hourCost = (min) => (min / 60) * K.mano_obra_hora;
-    const parts = computeParts(...splitCounts(s)).map((p, i) => {
+    const base = packedParts(s) || computeParts(...splitCounts(s));
+    const parts = base.map((p, i) => {
       const src = p.pieces && p.pieces.length ? p.pieces : [{ name: "", volume: p.vol, area: p.area, minY: p.minY, maxY: p.minY + p.h }];
       const pieces = src.map((pc, j) => ({
         name: pc.name, colorIdx: colorOf(i, j), dims: (pc.dims || [0, 0, 0]).map((v) => v * s),
@@ -1490,7 +1562,9 @@
       extras.push({ key, label, minutos, insumos, costo, margen, precio: roundTo(costo + margen, K.redondeo) });
     };
     // ensamble solo cuando nosotros cortamos la pieza (las placas del archivo no se pegan)
-    const uniones = state.model.multi ? 0 : parts.length - 1;
+    const packed = !!base.packed;
+    parts.packed = packed; // el visor lo usa para no pintar caras de corte
+    const uniones = state.model.multi || packed ? 0 : parts.length - 1;
     if (uniones) addExtra("ensamble", `Ensamble: ${uniones} ${uniones === 1 ? "unión" : "uniones"} (pegado y lijado)`, uniones * K.min_ensamble * q, uniones * K.insumos_ensamble * q);
     // cambios de color: dentro de cada placa (AMS) y entre placas que arrancan con otro filamento
     const M = C.multicolor;
@@ -1543,7 +1617,7 @@
     const pct = (x) => `${Math.round(x * 100)}%`;
     const colorTxt = coloresUsados > 1 ? ` · ${coloresUsados} colores` : color.recargo ? ` (+${pct(color.recargo)} color)` : "";
     return {
-      parts, extras, uniones, total, s, cm2, minimo: total - bruto, colores: coloresUsados,
+      parts, extras, uniones, packed, total, s, cm2, minimo: total - bruto, colores: coloresUsados,
       cambiosColor, purgaG, horasCambio,
       grams, meters: sum((p) => p.r.meters), hours: hours + horasCambio / q, layers: sum((p) => p.r.layers),
       lines: [
@@ -1568,7 +1642,8 @@
   function renderBadge(r) {
     const [vx, vy, vz] = C.maquina.volumen_mm;
     let status = "";
-    if (r && state.model.multi) status = `<span class="split">▦ ${state.model.auto ? "Organizado en" : "Archivo con"} ${r.parts.length} placas</span>`;
+    if (r && r.packed) status = `<span class="split">▦ Piezas repartidas en ${r.parts.length} placas</span>`;
+    else if (r && state.model.multi) status = `<span class="split">▦ ${state.model.auto ? "Organizado en" : "Archivo con"} ${r.parts.length} placas</span>`;
     else if (r && r.parts.length > 1) status = `<span class="split">✂ Dividido en ${r.parts.length} placas</span>`;
     else if (r) status = `<span class="ok">✓ Cabe en la impresora</span>`;
     $("#badge").innerHTML =
@@ -1609,6 +1684,8 @@
       showWarn(state.model.auto
         ? `Acomodamos tus piezas enteras (sin cortarlas) en ${r.parts.length} placas de la ${C.maquina.nombre}.`
         : `Tu archivo ya viene en ${r.parts.length} placas: cada una se imprime por separado y aquí ves el precio de cada una.`);
+    } else if (r.packed) {
+      showWarn(`Tus ${state.model.pieces.length} piezas no caben juntas en la ${C.maquina.nombre}: las repartimos enteras, sin cortarlas, en ${r.parts.length} placas.`);
     } else if (split) {
       showWarn(`A este tamaño no cabe en la ${C.maquina.nombre}: se imprime en ${r.parts.length} placas que luego se pegan. Las caras verdes son los cortes.`);
     } else if (state.model.volume < 1) {
