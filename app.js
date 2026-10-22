@@ -588,6 +588,19 @@
 
     const printer = buildPrinter();
     scene.add(printer.group);
+    // ver u ocultar la impresora (la cama y el área de impresión se quedan)
+    const machineBtn = $("#machine-btn");
+    try { printer.machine.visible = localStorage.getItem("maquina") !== "0"; } catch (e) { /* sin almacenamiento: visible */ }
+    const paintMachine = () => {
+      machineBtn.textContent = printer.machine.visible ? "▣ Ocultar máquina" : "▣ Ver máquina";
+      machineBtn.setAttribute("aria-pressed", !printer.machine.visible);
+    };
+    machineBtn.onclick = () => {
+      printer.machine.visible = !printer.machine.visible;
+      try { localStorage.setItem("maquina", printer.machine.visible ? "1" : "0"); } catch (e) { /* sin almacenamiento */ }
+      paintMachine();
+    };
+    paintMachine();
 
     const material = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0.05 });
     // soportes sugeridos: naranja translúcido, como en el laminador
@@ -620,17 +633,20 @@
     const group = new THREE.Group();
     const body = new THREE.MeshStandardMaterial({ color: 0x8f949c, roughness: 0.75, metalness: 0.1 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x24272e, roughness: 0.7, metalness: 0.3 });
-    const box = (w, h, d, mat, x, y, z) => {
+    // la máquina (base, torre y cabezal) se puede ocultar; la cama y el volumen quedan siempre
+    const machine = new THREE.Group();
+    group.add(machine);
+    const box = (w, h, d, mat, x, y, z, parent = machine) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
       m.position.set(x, y, z);
-      group.add(m);
+      parent.add(m);
       return m;
     };
 
     const towerX = -(bx / 2 + 40);
     box(bx + 110, 36, 140, body, -25, -40, 0);           // base
     box(30, by + 120, 16, dark, 0, -26, 0).rotation.x = Math.PI / 2; // riel Y
-    box(bx + 8, 5, by + 8, dark, 0, -2.5, 0);             // cama PEI
+    box(bx + 8, 5, by + 8, dark, 0, -2.5, 0, group);      // cama PEI
     box(34, bz + 90, 44, body, towerX, (bz + 90) / 2 - 58, 0); // torre Z
     const gantry = new THREE.Group();
     const beam = new THREE.Mesh(new THREE.BoxGeometry(bx + 60, 16, 20), body);
@@ -641,7 +657,7 @@
     nozzle.rotation.x = Math.PI;
     nozzle.position.set(0, -30, 26);
     gantry.add(beam, head, nozzle);
-    group.add(gantry);
+    machine.add(gantry);
 
     const grid = new THREE.GridHelper(bx, bx / 16, 0x4a505e, 0x2d313b);
     grid.position.y = 0.2;
@@ -656,6 +672,7 @@
 
     return {
       group,
+      machine,
       setHeight: (h) => { gantry.position.y = Math.min(h, bz) + 36; },
     };
   }
