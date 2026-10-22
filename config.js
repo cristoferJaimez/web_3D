@@ -294,6 +294,7 @@ window.CONFIG = {
      knot | torus | ico | box | cone | cylinder | sphere | gear
      ejemplo: true = se muestra con la etiqueta "Ejemplo". Quítalo cuando sea un trabajo real. */
   catalogo: [
+    { nombre: "Lámpara Flor de la Vida", categoria: "Hogar", material: "PLA", color: "#1a1a1a", desde: 65000, forma: "cylinder", media: ["trabajos/lampara-flor-de-la-vida-1.jpg", "trabajos/lampara-flor-de-la-vida-2.jpg", "trabajos/lampara-flor-de-la-vida-3.jpg", "trabajos/lampara-flor-de-la-vida-4.jpg", "trabajos/lampara-flor-de-la-vida-5.jpg", "trabajos/lampara-flor-de-la-vida-6.jpg"] },
     { nombre: "Maceta geométrica", categoria: "Hogar", material: "PLA", color: "#b6f23a", desde: 28000, forma: "ico", media: [], ejemplo: true },
     { nombre: "Engranaje de repuesto", categoria: "Repuestos", material: "PETG", color: "#8a8d93", desde: 18000, forma: "gear", media: [], ejemplo: true },
     { nombre: "Escultura paramétrica", categoria: "Arte", material: "PLA", color: "#d4a72c", desde: 45000, forma: "knot", media: [], ejemplo: true },
