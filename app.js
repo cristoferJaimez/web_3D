@@ -410,7 +410,7 @@
         group.position.set(Math.min(380, cw * 0.3) * unitsPerPx, 0.8, 0);
       } else {
         // móvil: el lienzo puede ser más alto que la pantalla; ubicar el logo a ~210 px del borde superior
-        group.scale.setScalar((cw * 0.86 * unitsPerPx) / w);
+        group.scale.setScalar((Math.min(cw * 0.86, 460) * unitsPerPx) / w); // en tablet no crece de más
         group.position.set(0, (ch / 2 - 210) * unitsPerPx + camera.position.y, 0);
       }
     }
@@ -1165,7 +1165,11 @@
         mesh.position.set(ox - cx, -lift, oz - cz);
       }
 
-      const label = textSprite(`PLACA ${p.label || i + 1} · ${fmtDims([(b.x1 - b.x0) * s, (b.z1 - b.z0) * s, p.h * s])}`);
+      // en celular: etiqueta grande y corta (las medidas están en la lista de placas)
+      const narrow = viewer.el.clientWidth < 520;
+      const label = narrow
+        ? textSprite(`PLACA ${p.label || i + 1}`, 64)
+        : textSprite(`PLACA ${p.label || i + 1} · ${fmtDims([(b.x1 - b.x0) * s, (b.z1 - b.z0) * s, p.h * s])}`);
       label.position.set(ox, Math.max(top, 40) + 30, oz);
       sub.add(label);
       group.add(sub);
