@@ -6,13 +6,15 @@
   const FIL_AREA = Math.PI * 0.875 * 0.875; // sección de filamento de 1.75 mm
 
   const cop = (n) => "$ " + Math.round(n).toLocaleString("es-CO");
+  // número con coma decimal (formato colombiano): dec(0.4) → "0,4"
+  const dec = (n, d) => Number(n).toLocaleString("es-CO", d == null ? { maximumFractionDigits: 2 } : { minimumFractionDigits: d, maximumFractionDigits: d });
   // Modo taller (?taller en la dirección): costos internos, margen, TRM y tarifas.
   // El cliente solo ve precios, pesos, tiempos y medidas.
-  const TALLER = new URLSearchParams(location.search).has("taller") || location.hash === "#taller";
+  const TALLER = new URLSearchParams(location.search).has("taller"); // #taller es la sección del menú
   document.documentElement.classList.toggle("taller", TALLER);
   // Precio para mostrar: siempre se calcula en pesos; en USD se convierte con la TRM del día
   const money = (n) => state.currency === "USD"
-    ? "US$ " + (n / state.trm).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    ? "US$ " + dec(n / state.trm, 2)
     : cop(n);
   const roundTo = (n, step) => Math.ceil(n / step) * step;
 
@@ -451,7 +453,7 @@
       supBtn.textContent = withSupports ? "Soportes: activados" : "Soportes: desactivados";
       supBtn.classList.toggle("on", withSupports);
       supBtn.setAttribute("aria-pressed", withSupports);
-      foot.textContent = `Ø0.4 mm · capa ${sim.capa} mm · giroide ${sim.infill}% · ${withSupports ? "con" : "sin"} soportes`;
+      foot.textContent = `Ø 0,4 mm · capa ${dec(sim.capa)} mm · giroide ${sim.infill} % · ${withSupports ? "con" : "sin"} soportes`;
       supports.visible = withSupports;
       supports3D.visible = withSupports;
       lastPhase = ""; // refrescar el estado
@@ -484,8 +486,8 @@
       hud.speed.textContent = speed;
       hud.fan.textContent = fan + "%";
       const tot = totals();
-      hud.g.textContent = (tot.g * p).toFixed(1) + " g";
-      hud.m.textContent = (tot.m * p).toFixed(2) + " m";
+      hud.g.textContent = dec(tot.g * p, 1) + " g";
+      hud.m.textContent = dec(tot.m * p, 2) + " m";
       hud.layer.textContent = String(Math.round(p * sim.layers)).padStart(3, "0");
       const left = Math.round(tot.min * (1 - p));
       let eta = `${left} min`;
@@ -1301,7 +1303,7 @@
 
   function loadSTLs(files) {
     const total = files.reduce((a, f) => a + f.size, 0);
-    const mb = (total / 1048576).toFixed(1);
+    const mb = dec(total / 1048576, 1);
     const sub = `${files.length} archivos STL · ${mb} MB`;
     let done = 0;
     showLoader("Leyendo archivos… 0%", 0, sub);
@@ -1363,7 +1365,7 @@
       return;
     }
     const mb = file.size / 1048576;
-    const sub = `${file.name} · ${mb < 1 ? Math.max(1, Math.round(file.size / 1024)) + " KB" : mb.toFixed(1) + " MB"}`;
+    const sub = `${file.name} · ${mb < 1 ? Math.max(1, Math.round(file.size / 1024)) + " KB" : dec(mb, 1) + " MB"}`;
     showLoader("Leyendo archivo…", 0, sub);
     const reader = new FileReader();
     reader.onprogress = (e) => {
@@ -1620,7 +1622,7 @@
       const m = ledMeters();
       const materiales = (m * tipo.precio_m + L.fuente + L.cable_conectores + tipo.extra) * q;
       const minutos = (L.min_instalacion + m * L.min_por_metro) * q;
-      addExtra("led", `Iluminación LED ${tipo.nombre}: ${m.toLocaleString("es-CO")} m + fuente + instalación`, minutos, materiales, L.margen);
+      addExtra("led", `Iluminación LED · ${tipo.nombre.toLowerCase()}: ${dec(m)} m + fuente + instalación`, minutos, materiales, L.margen);
     }
 
     const sum = (f) => parts.reduce((a, p) => a + f(p), 0);
@@ -1643,7 +1645,7 @@
       grams, meters: sum((p) => p.r.meters), hours: hours + horasCambio / q, layers: sum((p) => p.r.layers),
       lines: [
         [`Filamento ${mat.nombre} · ${fmtG(grams * q)} a ${cop(priceKg(state.mat))}/kg${colorTxt}`, t("filamento")],
-        [`Energía · ${t("kwh").toFixed(2)} kWh a ${cop(C.energia.precio_kwh)}/kWh`, t("energia")],
+        [`Energía · ${dec(t("kwh"), 2)} kWh a ${cop(C.energia.precio_kwh)}/kWh`, t("energia")],
         [`Máquina (desgaste y mantenimiento) · ${fmtTime(hours * q)} a ${cop(machineHour())}/h`, t("maquina")],
         [`Mano de obra · ${Math.round(t("minutos") + exMin)} min a ${cop(K.mano_obra_hora)}/h`, manoObra],
         ...(exIns ? [["Insumos (LED, pegamento, pintura, purga y máquina en cambios de color)", exIns]] : []),
@@ -1658,7 +1660,7 @@
     const t = Math.max(1, Math.round(h * 60));
     return t < 60 ? `${t} min` : `${Math.floor(t / 60)} h ${String(t % 60).padStart(2, "0")} min`;
   };
-  const fmtG = (g) => `${g.toFixed(g < 10 ? 1 : 0)} g`;
+  const fmtG = (g) => `${dec(g, g < 10 ? 1 : 0)} g`;
 
   function renderBadge(r) {
     const [vx, vy, vz] = C.maquina.volumen_mm;
@@ -1670,13 +1672,13 @@
     else if (r) status = `<span class="ok">✓ Cabe en la impresora</span>`;
     $("#badge").innerHTML =
       `<b>${C.maquina.nombre.toUpperCase()}</b>` +
-      `<span>Boquilla Ø${state.nozzle} mm · capa ${layerHeight()} mm</span>` +
+      `<span>Boquilla Ø ${dec(state.nozzle)} mm · capa ${dec(layerHeight())} mm</span>` +
       `<span>Área ${vx}×${vy}×${vz} mm · ${C.maquina.temp_max_boquilla} °C</span>` + status;
   }
 
   function update() {
     paintViews();
-    $("#nozzle-name").textContent = `Ø ${state.nozzle} mm`;
+    $("#nozzle-name").textContent = `Ø ${dec(state.nozzle)} mm`;
     const res = $("#result");
     if (!state.model) {
       renderBadge(null);
@@ -1742,13 +1744,13 @@
     if (thin) $("#infill-hint").textContent = `Esta pieza es de pared delgada: el ${Math.round((1 - interior / volumen) * 100)} % del material es pared sólida, así que el relleno casi no cambia su precio.`;
     $("#r-weight").textContent = fmtG(r.grams * q);
     $("#r-time").textContent = fmtTime(r.hours * q);
-    $("#r-length").textContent = `${(r.meters * q).toFixed(1)} m`;
+    $("#r-length").textContent = `${dec(r.meters * q, 1)} m`;
     $("#r-total").textContent = money(r.total);
-    const usd = (r.total / state.trm).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const usd = dec(r.total / state.trm, 2);
     const fecha = state.trmFecha ? ` del ${state.trmFecha}` : "";
     const trmTxt = TALLER ? ` · TRM ${cop(state.trm)}${fecha}` : "";
     $("#r-fx").textContent = state.currency === "USD" ? `≈ ${cop(r.total)} COP${trmTxt}` : `≈ US$ ${usd}${trmTxt}`;
-    let unit = `${Math.round(r.layers)} capas de ${layerHeight()} mm`;
+    let unit = `${Math.round(r.layers)} capas de ${dec(layerHeight())} mm`;
     if (split) unit = r.uniones ? `${r.parts.length} placas + ${r.uniones} ${r.uniones === 1 ? "unión" : "uniones"}` : `${r.parts.length} placas`;
     if (q > 1) unit = `${money(r.total / q)} c/u · ${q} unidades`;
     $("#r-unit").textContent = unit;
@@ -1816,18 +1818,18 @@
 
     const mat = C.materiales[state.mat];
     const lines = [
-      `Hola ${C.negocio.nombre}! Quiero cotizar esta impresión:`,
+      `¡Hola, ${C.negocio.nombre}! Quiero cotizar esta impresión:`,
       `• Archivo: ${state.model.name}`,
       `• Material: ${mat.nombre} – ${r.colores > 1 ? `multicolor (${r.colores} colores)` : mat.colores[state.color].nombre}` +
         (state.acabado === "pintado" ? ` · pintado a mano (${C.acabados.pintura[state.pintura].nombre.toLowerCase()})` : ""),
-      `• Boquilla ${state.nozzle} mm · Calidad ${C.calidades[state.calidad]} (${layerHeight()} mm) · Relleno ${state.infill}% · Escala ${state.scale}%`,
+      `• Boquilla ${dec(state.nozzle)} mm · Calidad ${C.calidades[state.calidad].toLowerCase()} (${dec(layerHeight())} mm) · Relleno ${state.infill} % · Escala ${state.scale} %`,
       `• Medidas: ${$("#dims").textContent}`,
       `• Soportes: ${state.supports ? "sí" : "no"} · Cantidad: ${q}`,
       `• Entrega estimada: ${state.eta.dias} días hábiles (${fmtDay(state.eta.fecha)})`,
     ];
     if (state.led.on) {
       const tipo = C.led.tipos.find((t) => t.id === state.led.tipo);
-      lines.push(`• Letrero con LED ${tipo.nombre}: ${ledMeters().toLocaleString("es-CO")} m de tira, fuente e instalación`);
+      lines.push(`• Letrero con LED ${tipo.nombre.toLowerCase()}: ${dec(ledMeters())} m de tira, fuente e instalación`);
     }
     if (split) {
       r.parts.forEach((p, i) => {
@@ -1943,13 +1945,13 @@
 
   function renderQualities() {
     $("#q-chips").replaceChildren(...C.calidades.map((nombre, i) =>
-      chip(`${nombre} · ${nozzle().capas[i]}`, i === state.calidad, () => { state.calidad = i; renderQualities(); update(); })
+      chip(`${nombre} · ${dec(nozzle().capas[i])}`, i === state.calidad, () => { state.calidad = i; renderQualities(); update(); })
     ));
   }
 
   function renderNozzles() {
     $("#n-chips").replaceChildren(...C.boquillas.map((b) =>
-      chip(`${b.d} mm`, b.d === state.nozzle, () => { state.nozzle = b.d; renderNozzles(); renderQualities(); update(); })
+      chip(`${dec(b.d)} mm`, b.d === state.nozzle, () => { state.nozzle = b.d; renderNozzles(); renderQualities(); update(); })
     ));
   }
 
@@ -2500,7 +2502,7 @@
     }
     g.fillStyle = "#8b909c";
     g.font = "400 18px 'JetBrains Mono', monospace";
-    g.fillText(`${C.maquina.nombre} · boquilla ${state.nozzle} mm · capa ${layerHeight()} mm · relleno ${state.infill}% · estimación automática`, pad, H - 28);
+    g.fillText(`${C.maquina.nombre} · boquilla ${dec(state.nozzle)} mm · capa ${dec(layerHeight())} mm · relleno ${state.infill} % · estimación automática`, pad, H - 28);
     return dataUrlToBlob(cv.toDataURL("image/png"));
   }
 
@@ -2621,7 +2623,7 @@
     const it = C.catalogo[i];
     const src = prefetchMedia(i);
     const link = `${location.origin}${location.pathname}#trabajo-${slug(it.nombre)}`;
-    const text = `Hola ${C.negocio.nombre}! Me interesa "${it.nombre}" (${it.material}) de tus trabajos.\n${link}`;
+    const text = `¡Hola, ${C.negocio.nombre}! Me interesa «${it.nombre}» (${it.material}) de tus trabajos.\n${link}`;
     sendWhatsApp(text, (src && mediaBlobs.get(src)) || null, `${slug(it.nombre)}.png`);
   }
 
@@ -2763,7 +2765,7 @@
 
   function renderTicker() {
     const delta = (state.trm / C.trm.referencia - 1) * 100;
-    const arrow = delta >= 0 ? `<span class="up">▲ ${delta.toFixed(1)}%</span>` : `<span class="down">▼ ${Math.abs(delta).toFixed(1)}%</span>`;
+    const arrow = delta >= 0 ? `<span class="up">▲ ${dec(delta, 1)} %</span>` : `<span class="down">▼ ${dec(Math.abs(delta), 1)} %</span>`;
     const items = [
       `<span>USD/COP <b>${cop(state.trm)}</b> ${arrow}</span>`,
       `<span>ENERGÍA ESTRATO ${C.energia.estrato || ""} <b>${cop(C.energia.precio_kwh)}/kWh</b></span>`,
@@ -2775,7 +2777,7 @@
     const publicItems = [
       `<span>IMPRESIÓN EN <b>${C.maquina.nombre.toUpperCase()}</b></span>`,
       `<span>MATERIALES <b>${Object.values(C.materiales).map((m) => m.nombre.split(" ")[0]).join(" · ")}</b></span>`,
-      `<span>PIEZAS HASTA <b>${C.maquina.volumen_mm.map((v) => v / 10).join(" × ")} CM</b> · MÁS GRANDES POR PARTES</span>`,
+      `<span>PIEZAS HASTA <b>${C.maquina.volumen_mm.map((v) => dec(v / 10)).join(" × ")} CM</b> · MÁS GRANDES POR PARTES</span>`,
       `<span>MULTICOLOR Y <b>PINTADO A MANO</b></span>`,
       `<span>COTIZA <b>AL INSTANTE</b> CON TU STL O 3MF</span>`,
       `<span>ENVÍOS A <b>TODA COLOMBIA</b></span>`,
