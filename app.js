@@ -1977,9 +1977,10 @@
   function renderHardware() {
     $("#hw-on").checked = state.herrajes.on;
     $("#hw-box").hidden = !state.herrajes.on;
-    $("#hw-list").innerHTML = C.herrajes.items.map((it) => `
+    let grupo = "";
+    $("#hw-list").innerHTML = C.herrajes.items.map((it) => `${it.grupo !== grupo ? `<h5 class="hw-group">${(grupo = it.grupo)}</h5>` : ""}
       <div class="hw-row">
-        <span>${it.nombre}<small>${it.desc} · ${money(it.precio * (1 + C.herrajes.margen))} c/u + instalación</small></span>
+        <span>${it.nombre}<small>📏 ${it.medida}</small><small>${money(it.precio * (1 + C.herrajes.margen))} c/u + instalación</small></span>
         <div class="qty"><button type="button" data-hw="${it.id}" data-d="-1" aria-label="Menos">−</button><input type="number" min="0" max="200" value="${state.herrajes.qty[it.id] || 0}" data-hw-in="${it.id}" aria-label="Cantidad de ${it.nombre}"><button type="button" data-hw="${it.id}" data-d="1" aria-label="Más">+</button></div>
       </div>`).join("");
   }

@@ -131,10 +131,19 @@ window.CONFIG = {
   // (compra al por mayor en Colombia): revísalos con tu proveedor.
   herrajes: {
     margen: 0.20,             // margen sobre el material (tu tiempo usa el margen del taller)
+    // medida: lo que ve el cliente, en cm (M3 = tornillo de 3 mm de grosor, el estándar en impresión 3D)
     items: [
-      { id: "inserto", nombre: "Inserto roscado M3", desc: "Latón, instalado con calor", precio: 500, min: 1.5 },
-      { id: "tornillo", nombre: "Tornillo M3 con tuerca", desc: "Acero, 10–20 mm", precio: 300, min: 0.5 },
-      { id: "iman", nombre: "Imán de neodimio 6×3 mm", desc: "Pegado con adhesivo", precio: 400, min: 1 },
+      { id: "inserto", grupo: "Insertos roscados (latón, se instalan con calor)", nombre: "Inserto M3", medida: "rosca de 0,3 cm · mide 0,5 cm de ancho y 0,5 cm de largo", precio: 500, min: 1.5 },
+      { id: "inserto_m2", grupo: "Insertos roscados (latón, se instalan con calor)", nombre: "Inserto M2", medida: "rosca de 0,2 cm · mide 0,35 cm de ancho y 0,3 cm de largo (electrónica)", precio: 450, min: 1.5 },
+      { id: "inserto_m4", grupo: "Insertos roscados (latón, se instalan con calor)", nombre: "Inserto M4", medida: "rosca de 0,4 cm · mide 0,6 cm de ancho y 0,8 cm de largo (más carga)", precio: 700, min: 2 },
+      { id: "tornillo_m3_8", grupo: "Tornillos (acero, cabeza Allen)", nombre: "Tornillo M3 × 8 mm", medida: "0,3 cm de grosor · 0,8 cm de largo", precio: 200, min: 0.5 },
+      { id: "tornillo", grupo: "Tornillos (acero, cabeza Allen)", nombre: "Tornillo M3 × 12 mm", medida: "0,3 cm de grosor · 1,2 cm de largo", precio: 250, min: 0.5 },
+      { id: "tornillo_m3_20", grupo: "Tornillos (acero, cabeza Allen)", nombre: "Tornillo M3 × 20 mm", medida: "0,3 cm de grosor · 2 cm de largo", precio: 300, min: 0.5 },
+      { id: "tornillo_m4_16", grupo: "Tornillos (acero, cabeza Allen)", nombre: "Tornillo M4 × 16 mm", medida: "0,4 cm de grosor · 1,6 cm de largo", precio: 400, min: 0.5 },
+      { id: "tuerca_m3", grupo: "Tornillos (acero, cabeza Allen)", nombre: "Tuerca M3", medida: "0,55 cm de ancho · 0,25 cm de alto", precio: 100, min: 0.5 },
+      { id: "iman", grupo: "Imanes de neodimio (pegados)", nombre: "Imán 6 × 3 mm", medida: "0,6 cm de diámetro · 0,3 cm de alto", precio: 400, min: 1 },
+      { id: "iman_10", grupo: "Imanes de neodimio (pegados)", nombre: "Imán 10 × 3 mm", medida: "1 cm de diámetro · 0,3 cm de alto (más fuerza)", precio: 700, min: 1 },
+      { id: "rodamiento", grupo: "Otros", nombre: "Rodamiento 608", medida: "2,2 cm de diámetro · 0,7 cm de grueso (el de las patinetas)", precio: 3000, min: 2 },
     ],
   },
 

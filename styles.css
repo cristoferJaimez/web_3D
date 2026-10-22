@@ -660,3 +660,7 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 .share-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
 .share-actions .btn:first-child { grid-column: 1 / -1; }
 .share-actions #share-copy[hidden] + #share-dl { grid-column: 1 / -1; }
+.hw-group { font-size: .7rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: #b9a8ff; margin: .9rem 0 .2rem; }
+.hw-group:first-child { margin-top: 0; }
+.hw-row { padding: .5rem 0; }
+.hw-row small + small { margin-top: .1rem; }
