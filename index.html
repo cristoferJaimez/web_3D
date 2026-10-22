@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=50">
+  <link rel="stylesheet" href="styles.css?v=51">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -153,6 +153,7 @@
         <div class="field">
           <label for="infill">Relleno <output id="infill-out" class="mono">20%</output></label>
           <input type="range" id="infill" min="10" max="100" step="5" value="20">
+          <p class="hint" id="infill-hint" hidden></p>
         </div>
 
         <div class="field">
@@ -268,8 +269,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-  <script src="config.js?v=50"></script>
+  <script src="config.js?v=51"></script>
   <script src="parser3mf.js?v=3"></script>
-  <script src="app.js?v=50"></script>
+  <script src="app.js?v=51"></script>
 </body>
 </html>

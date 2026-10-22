@@ -1480,11 +1480,13 @@
     const noz = nozzle(), capa = layerHeight(), lw = noz.d * 1.05;
     const sup = state.supports ? 1 + P.recargo_soportes : 1;
 
-    let printed = 0, filamento = 0, grams = 0;
+    let printed = 0, filamento = 0, grams = 0, interior = 0, volumen = 0;
     for (const pc of pieces) {
       pc.color = mat.colores[pc.colorIdx] || mat.colores[0];
       const shell = Math.min(pc.vol, pc.area * P.perimetros * lw);
       const pr = (shell + (pc.vol - shell) * (state.infill / 100)) * sup;
+      interior += pc.vol - shell; // lo único que cambia con el relleno
+      volumen += pc.vol;
       pc.grams = (pr / 1000) * mat.densidad;
       printed += pr;
       grams += pc.grams;
@@ -1527,7 +1529,7 @@
     const costo = filamento + energia + maquina + manoObra + riesgo;
     const margen = costo * K.margen_ganancia;
     return { grams, meters, hours, layers, kwh, minutos, filamento, energia, maquina, manoObra, riesgo, margen,
-      precio: costo + margen, color, colors: colors.length, cambios, purgaG, first, last, pieces };
+      precio: costo + margen, color, colors: colors.length, cambios, purgaG, first, last, pieces, interior, volumen };
   }
 
   const machineHour = () => C.maquina.costo / C.maquina.vida_util_horas + C.maquina.mantenimiento_hora;
@@ -1692,6 +1694,11 @@
       showWarn("El modelo parece no estar cerrado; el cálculo puede ser inexacto.");
     } else showWarn("");
 
+    // piezas de pared delgada (lámparas, cáscaras): casi todo es pared sólida
+    const interior = r.parts.reduce((a, p) => a + p.r.interior, 0), volumen = r.parts.reduce((a, p) => a + p.r.volumen, 0);
+    const thin = volumen > 0 && interior / volumen < 0.1;
+    $("#infill-hint").hidden = !thin;
+    if (thin) $("#infill-hint").textContent = `Esta pieza es de pared delgada: el ${Math.round((1 - interior / volumen) * 100)} % del material es pared sólida, así que el relleno casi no cambia su precio.`;
     $("#r-weight").textContent = fmtG(r.grams * q);
     $("#r-time").textContent = fmtTime(r.hours * q);
     $("#r-length").textContent = `${(r.meters * q).toFixed(1)} m`;
