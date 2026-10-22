@@ -2294,7 +2294,7 @@
 
   function loadQueue() {
     if (!C.subida || !C.subida.url) return Promise.resolve();
-    return fetch(C.subida.url).then((r) => r.json()).then((d) => {
+    return fetch(`${C.subida.url}?t=${Date.now()}`).then((r) => r.json()).then((d) => {
       if (!d.ok) return;
       Object.assign(queue, { ok: true, horas: d.horasPendientes || 0, cola: d.cola || [], entregados14: d.entregados14 || 0 });
     }).catch(() => {}).finally(() => { renderQueue(); if (state.model) update(); });
@@ -3028,6 +3028,14 @@
   loadDailyPrices().then(renderPrices).then(loadTRM).then(renderPrices);
   renderQueue();
   loadQueue();
-  $("#q-track").onsubmit = (e) => { e.preventDefault(); trackOrder($("#q-id").value); };
-  setInterval(loadQueue, 5 * 60 * 1000); // refrescar la cola cada 5 minutos
+  // al consultar, se pide la cola fresca (por si acabas de cambiar el estado en la hoja)
+  $("#q-track").onsubmit = (e) => {
+    e.preventDefault();
+    const box = $("#q-result");
+    box.hidden = false;
+    box.className = "q-result";
+    box.textContent = "Consultando…";
+    loadQueue().then(() => trackOrder($("#q-id").value));
+  };
+  setInterval(loadQueue, 2 * 60 * 1000); // refrescar la cola cada 2 minutos
 })();

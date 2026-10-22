@@ -62,7 +62,7 @@ function doGet() {
   });
   cola.sort((a, b) => orden[a.estado] - orden[b.estado] || a.fecha.localeCompare(b.fecha));
   const out = JSON.stringify({ ok: true, cola, horasPendientes: Math.round(horas * 10) / 10, entregados14: entregados });
-  cache.put("cola", out, 120); // 2 minutos
+  cache.put("cola", out, 60); // 1 minuto (y se borra al editar la hoja: ver activarActualizacion)
   return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -267,6 +267,7 @@ function actualizarHoja() {
   ["Resumen", "Ganancias", "Por producto"].forEach((n) => { const v = ss.getSheetByName(n); if (v) ss.deleteSheet(v); });
   crearResumen(ss);
   crearGanancias(ss);
+  activarActualizacion();
   CacheService.getScriptCache().remove("cola");
   Logger.log("Hoja actualizada: " + ss.getUrl());
 }
@@ -291,6 +292,20 @@ function buscarOCrear(padre, nombre) {
 // Crea la hoja de control y pide los permisos. Ejecútala una vez después de pegar el código.
 function crearHoja() {
   Logger.log("Hoja de control: " + libro().getUrl());
+}
+
+// Cada vez que editas la hoja (p. ej. cambias un Estado) la página lo ve al instante.
+function alEditarHoja() {
+  CacheService.getScriptCache().remove("cola");
+}
+
+// Ejecútala UNA vez: instala el aviso de edición de la hoja (también la llama actualizarHoja).
+function activarActualizacion() {
+  ScriptApp.getProjectTriggers()
+    .filter((t) => t.getHandlerFunction() === "alEditarHoja")
+    .forEach((t) => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger("alEditarHoja").forSpreadsheet(libro()).onEdit().create();
+  Logger.log("Listo: los cambios de la hoja se ven al instante en la página.");
 }
 
 // Activa la limpieza diaria de los .zip de más de BORRAR_DESPUES_DIAS días (la hoja se conserva).
