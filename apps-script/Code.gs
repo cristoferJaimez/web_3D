@@ -16,7 +16,10 @@ const HOJA = "HHH3D - Control de pedidos";
 const MAX_MB = 30;
 const AVISAR_POR_CORREO = true;   // correo a tu Gmail con cada pedido
 const BORRAR_DESPUES_DIAS = 90;   // limpieza de archivos .zip (ver activarLimpieza); la hoja no se borra
-const ESTADOS = ["Nuevo", "Confirmado", "Imprimiendo", "Listo", "Entregado", "Cancelado"];
+// Flujo: Cotización (automático) → En proceso (confirmado por WhatsApp) → Imprimiendo → Listo → Entregado.
+// "No concretado" = la cotización no se cerró. Ventas y resumen solo cuentan pedidos confirmados.
+const ESTADOS = ["Cotización", "En proceso", "Imprimiendo", "Listo", "Entregado", "No concretado"];
+const NO_VENTA = ["Cotización", "No concretado"];
 const COLUMNAS = ["Pedido", "Fecha", "Mes", "Cliente", "Celular", "Archivo(s)", "Enlace archivo",
   "Material / color", "Placas", "Peso (g)", "Horas", "Costo", "Total", "Utilidad", "Estado",
   "Abonado", "Saldo", "Entrega", "Observaciones", "Detalle"];
@@ -38,7 +41,7 @@ function doGet() {
   const sh = libro().getSheetByName("Pedidos");
   const n = sh.getLastRow() - 1;
   const filas = n > 0 ? sh.getRange(2, 1, n, 15).getValues() : [];
-  const orden = { Imprimiendo: 0, Confirmado: 1, Listo: 2 };
+  const orden = { Imprimiendo: 0, "En proceso": 1, Listo: 2 };
   const hace14 = Date.now() - 14 * 864e5;
   const cola = [];
   let horas = 0, entregados = 0;
@@ -84,7 +87,7 @@ function registrarPedido(d) {
     const sh = libro().getSheetByName("Pedidos");
     sh.appendRow([t(d.id, 40), fecha, Utilities.formatDate(fecha, "America/Bogota", "yyyy-MM"),
       t(d.cliente, 100), t(d.celular, 30), t(d.archivos, 300), t(d.url, 300), t(d.material, 200),
-      num(d.placas), num(d.peso), num(d.horas), num(d.costo), num(d.total), "", "Nuevo", 0, "",
+      num(d.placas), num(d.peso), num(d.horas), num(d.costo), num(d.total), "", "Cotización", 0, "",
       d.entrega ? new Date(d.entrega) : "",
       t(d.observaciones, 500), t(d.detalle, 4000)]);
     const r = sh.getLastRow();
@@ -122,6 +125,13 @@ function prepararLibro(ss) {
   sh.getRange(1, 1, 1, COLUMNAS.length).setValues([COLUMNAS])
     .setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
   sh.setFrozenRows(1);
+  [130, 125, 70, 160, 110, 220, 170, 200, 60, 70, 60, 90, 90, 90, 120, 90, 90, 95, 240, 300]
+    .forEach((w, i) => sh.setColumnWidth(i + 1, w));
+  formatoPedidos(sh);
+  crearResumen(ss);
+}
+
+function formatoPedidos(sh) {
   const filas = 2000;
   sh.getRange(2, 1, filas, 1).setNumberFormat("@");               // pedido
   sh.getRange(2, 2, filas, 1).setNumberFormat("dd/mm/yyyy hh:mm"); // fecha
@@ -130,38 +140,59 @@ function prepararLibro(ss) {
   sh.getRange(2, 10, filas, 2).setNumberFormat("0.0");            // peso, horas
   ["L", "M", "N", "P", "Q"].forEach((c) => sh.getRange(`${c}2:${c}${filas + 1}`).setNumberFormat("$ #,##0"));
   sh.getRange(2, 18, filas, 1).setNumberFormat("dd/mm/yyyy");     // entrega
-  sh.getRange(2, 15, filas, 1).setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList(ESTADOS, true).setAllowInvalid(false).build());
-  // colores por estado
   const rango = sh.getRange(2, 15, filas, 1);
-  const color = { Nuevo: "#fff4c2", Confirmado: "#d9ecff", Imprimiendo: "#e6dcff", Listo: "#d8f5c8", Entregado: "#c8f0d8", Cancelado: "#f6d0d0" };
+  rango.setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(ESTADOS, true).setAllowInvalid(false).build());
+  const color = { "Cotización": "#fff4c2", "En proceso": "#d9ecff", Imprimiendo: "#e6dcff", Listo: "#d8f5c8", Entregado: "#c8f0d8", "No concretado": "#e3e3e3" };
   sh.setConditionalFormatRules(Object.keys(color).map((k) =>
     SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(k).setBackground(color[k]).setRanges([rango]).build()));
-  [130, 125, 70, 160, 110, 220, 170, 200, 60, 70, 60, 90, 90, 90, 110, 90, 90, 95, 240, 300]
-    .forEach((w, i) => sh.setColumnWidth(i + 1, w));
+}
 
-  // resumen por mes (sin pedidos cancelados)
+// Resumen por mes: ventas, costo y utilidad solo de pedidos confirmados; cotizaciones y % de cierre
+function crearResumen(ss) {
   const rs = ss.insertSheet("Resumen");
-  rs.getRange("A1:G1").setValues([["Mes", "Pedidos", "Ventas", "Costo", "Utilidad", "Cobrado", "Por cobrar"]])
+  rs.getRange("A1:I1").setValues([["Mes", "Pedidos", "Ventas", "Costo", "Utilidad", "Cobrado", "Por cobrar", "Cotizaciones", "% cierre"]])
     .setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
-  const ok = `Pedidos!$O$2:$O,"<>Cancelado"`;
-  rs.getRange("A2").setFormula(`=IFERROR(SORT(UNIQUE(FILTER(Pedidos!C2:C,Pedidos!C2:C<>"",Pedidos!O2:O<>"Cancelado")),1,FALSE),"")`);
-  rs.getRange("B2").setFormula(`=ARRAYFORMULA(IF(A2:A="",,COUNTIFS(Pedidos!$C$2:$C,A2:A,${ok})))`);
+  const venta = NO_VENTA.map((e) => `Pedidos!$O$2:$O,"<>${e}"`).join(",");
+  rs.getRange("A2").setFormula(`=IFERROR(SORT(UNIQUE(FILTER(Pedidos!C2:C,Pedidos!C2:C<>"")),1,FALSE),"")`);
+  rs.getRange("B2").setFormula(`=ARRAYFORMULA(IF(A2:A="",,COUNTIFS(Pedidos!$C$2:$C,A2:A,${venta})))`);
   [["C", "M"], ["D", "L"], ["E", "N"], ["F", "P"], ["G", "Q"]].forEach(([dst, src]) =>
-    rs.getRange(`${dst}2`).setFormula(`=ARRAYFORMULA(IF(A2:A="",,SUMIFS(Pedidos!$${src}$2:$${src},Pedidos!$C$2:$C,A2:A,${ok})))`));
+    rs.getRange(`${dst}2`).setFormula(`=ARRAYFORMULA(IF(A2:A="",,SUMIFS(Pedidos!$${src}$2:$${src},Pedidos!$C$2:$C,A2:A,${venta})))`));
+  rs.getRange("H2").setFormula(`=ARRAYFORMULA(IF(A2:A="",,COUNTIFS(Pedidos!$C$2:$C,A2:A)))`);
+  rs.getRange("I2").setFormula(`=ARRAYFORMULA(IF(A2:A="",,IFERROR(B2:B/H2:H,0)))`);
   rs.getRange("C2:G").setNumberFormat("$ #,##0");
-  rs.getRange("I1:J1").setValues([["Total general", ""]]).setFontWeight("bold");
-  const tot = [["Pedidos", `=COUNTIFS(Pedidos!A2:A,"<>",${ok})`], ["Ventas", `=SUMIFS(Pedidos!M2:M,${ok})`],
-    ["Costo", `=SUMIFS(Pedidos!L2:L,${ok})`], ["Utilidad", `=SUMIFS(Pedidos!N2:N,${ok})`],
-    ["Cobrado", `=SUMIFS(Pedidos!P2:P,${ok})`], ["Por cobrar", `=SUMIFS(Pedidos!Q2:Q,${ok})`]];
-  tot.forEach(([k, f], i) => {
-    rs.getRange(i + 2, 9).setValue(k);
-    rs.getRange(i + 2, 10).setFormula(f).setNumberFormat(i ? "$ #,##0" : "0");
+  rs.getRange("I2:I").setNumberFormat("0%");
+  rs.getRange("K1").setValue("Total general").setFontWeight("bold");
+  const tot = [["Pedidos", `=COUNTIFS(Pedidos!A2:A,"<>",${venta})`, "0"], ["Ventas", `=SUMIFS(Pedidos!M2:M,${venta})`],
+    ["Costo", `=SUMIFS(Pedidos!L2:L,${venta})`], ["Utilidad", `=SUMIFS(Pedidos!N2:N,${venta})`],
+    ["Cobrado", `=SUMIFS(Pedidos!P2:P,${venta})`], ["Por cobrar", `=SUMIFS(Pedidos!Q2:Q,${venta})`],
+    ["Cotizaciones", `=COUNTA(Pedidos!A2:A)`, "0"], ["% cierre", `=IFERROR(L2/L8,0)`, "0%"]];
+  tot.forEach(([k, f, fmt], i) => {
+    rs.getRange(i + 2, 11).setValue(k);
+    rs.getRange(i + 2, 12).setFormula(f).setNumberFormat(fmt || "$ #,##0");
   });
   rs.setFrozenRows(1);
-  rs.setColumnWidths(1, 7, 110);
-  rs.setColumnWidth(9, 110);
-  rs.setColumnWidth(10, 120);
+  rs.setColumnWidths(1, 9, 105);
+  rs.setColumnWidth(11, 110);
+  rs.setColumnWidth(12, 120);
+}
+
+// Pasa una hoja ya creada al flujo nuevo de estados (ejecútala una vez si ya tenías la hoja).
+function actualizarHoja() {
+  const ss = libro();
+  const sh = ss.getSheetByName("Pedidos");
+  const cambio = { Nuevo: "Cotización", Confirmado: "En proceso", Cancelado: "No concretado" };
+  const n = sh.getLastRow() - 1;
+  sh.getRange(2, 15, Math.max(n, 1), 1).clearDataValidations();
+  if (n > 0) {
+    const r = sh.getRange(2, 15, n, 1);
+    r.setValues(r.getValues().map(([v]) => [cambio[v] || v]));
+  }
+  formatoPedidos(sh);
+  const viejo = ss.getSheetByName("Resumen");
+  if (viejo) ss.deleteSheet(viejo);
+  crearResumen(ss);
+  CacheService.getScriptCache().remove("cola");
+  Logger.log("Hoja actualizada: " + ss.getUrl());
 }
 
 /* ---------- carpetas ---------- */

@@ -2195,12 +2195,12 @@
     const stat = (n, t) => `<div><b>${n}</b><span>${t}</span></div>`;
     $("#q-stats").innerHTML =
       stat(queue.cola.filter((p) => p.estado === "Imprimiendo").length, "imprimiendo ahora") +
-      stat(queue.cola.filter((p) => p.estado === "Confirmado").length, "en espera") +
+      stat(queue.cola.filter((p) => p.estado === "En proceso").length, "en espera") +
       stat(`${Math.round(queue.horas)} h`, "de impresión en cola") +
       stat(queue.entregados14, "entregados (últimos 14 días)");
-    const ico = { Imprimiendo: "🖨", Confirmado: "⏳", Listo: "📦" };
+    const ico = { Imprimiendo: "🖨", "En proceso": "⏳", Listo: "📦" };
     $("#q-list").innerHTML = queue.cola.map((p) => `
-      <div class="q-item ${p.estado.toLowerCase()}">
+      <div class="q-item ${slug(p.estado)}">
         <span class="q-state">${ico[p.estado] || "•"} ${p.estado}</span>
         <b class="mono">${p.id}</b>
         <span>${p.material || "—"}</span>
