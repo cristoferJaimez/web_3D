@@ -1287,6 +1287,7 @@
   // Uno o varios archivos. Varios STL = un proyecto en piezas: se acomodan en las placas.
   function loadFiles(files) {
     if (!files.length) return;
+    state.sourceFiles = files; // se envían con el pedido (comprimidos)
     if (files.length === 1) return loadFile(files[0]);
     const stls = files.filter((f) => /\.stl$/i.test(f.name));
     if (stls.length !== files.length) {
@@ -1830,7 +1831,7 @@
     if (!split && r.colores > 1) r.parts[0].r.pieces.forEach((pc) => lines.push(`      · ${pc.name}: ${pc.color.nombre}`));
     r.extras.forEach((e) => lines.push(`   – ${e.label}: ${cop(e.precio)}`));
     lines.push(`• Estimado web: ${cop(r.total)}${state.currency === "USD" ? ` (≈ ${money(r.total)})` : ""} (${fmtTime(r.hours * q)})`,
-      `Adjunto la ficha con la imagen de cada placa. Te envío el archivo ${state.model.name.split(".").pop().toUpperCase()} por aquí.`);
+      `Adjunto la ficha con la imagen de cada placa.`);
     state.lastQuote = r;
     state.waText = lines.join("\n");
     $("#wa-btn").href = `https://wa.me/${C.negocio.whatsapp}?text=${encodeURIComponent(state.waText)}`;
@@ -1988,7 +1989,7 @@
       e.preventDefault();
       let blob = null;
       try { blob = quoteImage(state.lastQuote); } catch (err) { console.error(err); }
-      sendWhatsApp(state.waText, blob, `cotizacion-${slug(C.negocio.nombre)}.png`);
+      sendWhatsApp(state.waText, blob, `cotizacion-${slug(C.negocio.nombre)}.png`, { files: state.sourceFiles || [] });
     });
     $("#notes").oninput = (e) => { state.notes = e.target.value; };
     $("#pn-prev").onclick = () => stepPlate(-1);
@@ -2077,32 +2078,64 @@
   }
 
   // blob: la imagen ya lista (Blob) o null. Debe llamarse directo desde el clic.
-  // agrega las observaciones del cliente al final del mensaje
-  const withNotes = (text) => {
+  // agrega el enlace del archivo y las observaciones del cliente al mensaje
+  const composeText = (text, fileUrl) => {
     const n = (state.notes || "").trim();
-    return n ? `${text}
-• Observaciones: ${n}` : text;
+    return text + (fileUrl ? `\n• Archivo para imprimir: ${fileUrl}` : "") + (n ? `\n• Observaciones: ${n}` : "");
   };
-  const waLink = (text) => `https://wa.me/${C.negocio.whatsapp}?text=${encodeURIComponent(withNotes(text))}`;
+  const waLink = (text, fileUrl) => `https://wa.me/${C.negocio.whatsapp}?text=${encodeURIComponent(composeText(text, fileUrl))}`;
 
-  function sendWhatsApp(baseText, blob, fileName) {
-    const text = withNotes(baseText);
-    const waUrl = waLink(baseText);
-    const file = blob ? new File([blob], fileName, { type: blob.type }) : null;
-    const touch = matchMedia("(pointer: coarse)").matches;
-    if (file && touch && navigator.canShare && navigator.canShare({ files: [file] })) {
-      navigator.share({ files: [file], text }).catch((e) => {
-        if (e.name !== "AbortError") window.open(waUrl, "_blank", "noopener");
-      });
-      return;
-    }
+  /* ---- subida del archivo del cliente a tu Google Drive (ver apps-script/Code.gs) ---- */
+  const toBase64 = (u8) => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).split(",")[1]);
+    r.onerror = rej;
+    r.readAsDataURL(new Blob([u8]));
+  });
+
+  function zipOrder(files, resumen) {
+    return Promise.all(files.map((f) => f.arrayBuffer().then((b) => [f.name, new Uint8Array(b)])))
+      .then((entries) => new Promise((res, rej) => {
+        const z = {};
+        // el 3MF ya viene comprimido: se guarda tal cual; el STL sí se comprime
+        for (const [name, u8] of entries) z[name] = [u8, { level: /\.3mf$/i.test(name) ? 0 : 6 }];
+        z["pedido.txt"] = [new TextEncoder().encode(resumen), { level: 6 }];
+        fflate.zip(z, (err, data) => (err ? rej(err) : res(data)));
+      }));
+  }
+
+  // Petición "simple" (texto plano, sin medir progreso): Apps Script no responde las
+  // consultas previas de CORS, así que no se puede usar nada que las provoque.
+  function postUpload(payload) {
+    return fetch(C.subida.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) })
+      .then((r) => r.json())
+      .then((d) => (d.ok ? d.url : Promise.reject(new Error(d.error || "error"))));
+  }
+
+  const uploads = new Map(); // mismos archivos → mismo enlace (no se suben dos veces)
+  function uploadOrder(files, resumen, onProgress) {
+    const key = files.map((f) => `${f.name}:${f.size}:${f.lastModified}`).join("|");
+    if (uploads.has(key)) return uploads.get(key);
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
+    const base = slug(state.model ? state.model.name.replace(/\.[^.]+$/, "") : "pedido") || "pedido";
+    const job = zipOrder(files, resumen).then((zip) => {
+      if (zip.length > (C.subida.max_mb || 30) * 1048576) throw Object.assign(new Error("grande"), { big: true });
+      return toBase64(zip);
+    }).then((data) => { onProgress(); return postUpload({ name: `${stamp}-${base}.zip`, data, resumen }); });
+    job.catch(() => uploads.delete(key)); // si falla, se puede reintentar
+    uploads.set(key, job);
+    return job;
+  }
+
+  // blob: imagen de la cotización (o null). opts.files: archivos del cliente para subir.
+  function sendWhatsApp(baseText, blob, fileName, opts = {}) {
     if (!blob) {
-      window.open(waUrl, "_blank", "noopener");
+      window.open(waLink(baseText), "_blank", "noopener");
       return;
     }
-    // computador: ventana con la imagen. Se copia AHORA, mientras la página tiene el foco
-    // (si primero se abre WhatsApp, el navegador ya no deja copiar).
-    openShareDialog(baseText, blob, fileName);
+    // ventana de envío (computador y celular). La imagen se copia AHORA, mientras la
+    // página tiene el foco (si primero se abre WhatsApp, el navegador ya no deja copiar).
+    openShareDialog(baseText, blob, fileName, opts.files || []);
   }
 
   function copyImage(blob) {
@@ -2112,7 +2145,7 @@
   }
 
   let shareUrl = null;
-  function openShareDialog(baseText, blob, fileName) {
+  function openShareDialog(baseText, blob, fileName, files) {
     const notes = $("#share-notes");
     notes.value = state.notes || "";
     notes.oninput = () => { state.notes = notes.value; $("#notes").value = notes.value; };
@@ -2123,37 +2156,80 @@
     const dl = $("#share-dl");
     dl.href = shareUrl;
     dl.download = fileName;
-    const status = $("#share-status");
-    const setStatus = (ok) => {
-      status.className = "share-status " + (ok ? "ok" : "fail");
-      status.innerHTML = ok
-        ? `<ol class="steps-list">
-             <li><b>✓ La imagen ya está copiada</b></li>
-             <li>Toca <b>Abrir WhatsApp</b></li>
-             <li>En el chat presiona <kbd>Ctrl</kbd> + <kbd>V</kbd> para pegar la imagen y envíala</li>
-           </ol>`
-        : `<ol class="steps-list">
-             <li>Toca <b>Descargar</b> para guardar la imagen</li>
-             <li>Toca <b>Abrir WhatsApp</b></li>
-             <li>En el chat usa el clip 📎 para adjuntar la imagen y envíala</li>
-           </ol>`;
-      copied = ok;
+
+    const imgFile = new File([blob], fileName, { type: blob.type });
+    const mobileShare = matchMedia("(pointer: coarse)").matches && navigator.canShare && navigator.canShare({ files: [imgFile] });
+    const waBtn = $("#share-wa");
+    waBtn.textContent = mobileShare ? "Compartir en WhatsApp" : "Abrir WhatsApp";
+    $("#share-copy").hidden = !!mobileShare;
+
+    // estado del archivo del cliente
+    const fileBox = $("#share-file");
+    const names = files.map((f) => f.name).join(", ");
+    let fileUrl = null, uploading = false, copied = false;
+    const fileStep = () => {
+      if (!files.length) return "";
+      if (fileUrl) return `<li><b>✓ Tu archivo ya nos llegó</b> (va en el mensaje)</li>`;
+      return `<li>Adjunta tu archivo <b>${names}</b> en el chat con el clip 📎</li>`;
     };
-    let copied = false;
-    status.className = "share-status";
-    status.textContent = "Copiando imagen…";
+    const renderSteps = () => {
+      const status = $("#share-status");
+      if (mobileShare) {
+        status.className = "share-status ok";
+        status.innerHTML = `<ol class="steps-list">
+            <li>Toca <b>Compartir en WhatsApp</b> y elige el chat de ${C.negocio.nombre}</li>
+            ${fileStep()}
+          </ol>`;
+      } else {
+        status.className = "share-status " + (copied ? "ok" : "fail");
+        status.innerHTML = `<ol class="steps-list">
+            ${copied ? `<li><b>✓ La imagen ya está copiada</b></li>` : `<li>Toca <b>Descargar</b> para guardar la imagen</li>`}
+            <li>Toca <b>Abrir WhatsApp</b></li>
+            <li>${copied ? `En el chat presiona <kbd>Ctrl</kbd> + <kbd>V</kbd> para pegar la imagen y envíala` : `En el chat adjunta la imagen con el clip 📎 y envíala`}</li>
+            ${fileStep()}
+          </ol>`;
+      }
+    };
+    const setFileBox = (html, cls = "") => { fileBox.className = "share-file " + cls; fileBox.innerHTML = html; fileBox.hidden = !html; };
+    setFileBox("");
+    waBtn.disabled = false;
+    if (files.length && C.subida && C.subida.url) {
+      uploading = true;
+      waBtn.disabled = true;
+      const bar = () => setFileBox(`<span>Enviando tu archivo de forma privada…</span><i></i>`, "busy");
+      setFileBox(`<span>Preparando tu archivo…</span><i></i>`, "busy");
+      uploadOrder(files, composeText(baseText), bar).then((url) => {
+        fileUrl = url;
+        setFileBox(`✓ Recibimos tu archivo <b>${names}</b>`, "ok");
+      }, (e) => {
+        setFileBox(e.big
+          ? `Tu archivo es muy pesado para enviarlo desde aquí: adjúntalo en el chat de WhatsApp.`
+          : `No pudimos enviar tu archivo: adjúntalo en el chat de WhatsApp.`, "fail");
+      }).finally(() => { uploading = false; waBtn.disabled = false; renderSteps(); });
+    }
+
+    renderSteps();
     dlg.hidden = false;
-    copyImage(blob).then(() => setStatus(true), () => setStatus(false));
-    $("#share-copy").onclick = () => copyImage(blob).then(() => setStatus(true), () => setStatus(false));
-    $("#share-wa").onclick = () => {
-      const win = window.open(waLink(baseText), "_blank"); // con las observaciones escritas en la ventana
+    if (!mobileShare) {
+      copyImage(blob).then(() => { copied = true; renderSteps(); }, () => renderSteps());
+      $("#share-copy").onclick = () => copyImage(blob).then(() => { copied = true; renderSteps(); }, () => renderSteps());
+    }
+    waBtn.onclick = () => {
+      if (uploading) return;
+      if (mobileShare) {
+        navigator.share({ files: [imgFile], text: composeText(baseText, fileUrl) }).catch((e) => {
+          if (e.name !== "AbortError") window.open(waLink(baseText, fileUrl), "_blank", "noopener");
+        });
+        return;
+      }
+      const win = window.open(waLink(baseText, fileUrl), "_blank");
       if (win) win.opener = null;
       closeShareDialog();
-      toast(copied
-        ? "📋 La imagen de tu cotización ya está copiada. En el chat de WhatsApp presiona Ctrl + V para pegarla y envíala."
-        : "📎 En el chat de WhatsApp adjunta con el clip la imagen que descargaste y envíala.", 15000);
+      const pasos = [copied ? "pega la imagen de tu cotización con Ctrl + V" : "adjunta la imagen que descargaste"];
+      if (files.length && !fileUrl) pasos.push("adjunta tu archivo con el clip 📎");
+      toast(`📋 En el chat de WhatsApp ${pasos.join(", ")} y envía el mensaje.`, 15000);
     };
-    $("#share-wa").focus();
+    waBtn.focus();
   }
 
   function closeShareDialog() {

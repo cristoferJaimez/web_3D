@@ -37,6 +37,20 @@ pero no es secreta: cualquiera que conozca la dirección puede verla.
 | `index.html`, `styles.css`, `app.js` | La página |
 | `parser3mf.js`, `worker3mf.js` | Lector de archivos 3MF |
 
+## Recibir los archivos de los pedidos en tu Google Drive
+
+WhatsApp no permite que una página adjunte archivos. Para que el STL/3MF del cliente te llegue solo:
+
+1. Entra a https://script.google.com con tu cuenta → **Nuevo proyecto**.
+2. Borra lo que aparece y pega todo el contenido de `apps-script/Code.gs`. Guarda.
+3. **Implementar → Nueva implementación → Aplicación web**. Ejecutar como: **Yo**. Acceso: **Cualquier usuario**.
+4. Autoriza el acceso (Configuración avanzada → Ir al proyecto) y copia la **URL de la aplicación web** (termina en `/exec`).
+5. Pégala en `config.js` → `subida.url` y sube el cambio.
+
+Cada pedido llega como un `.zip` (archivos del cliente + `pedido.txt`) en la carpeta **HHH3D - Pedidos** de tu Drive,
+y el mensaje de WhatsApp trae el enlace. Los archivos no se comparten: solo tu cuenta puede abrirlos.
+Mientras `subida.url` esté vacío, la página le pide al cliente adjuntar el archivo en el chat.
+
 ## Precios automáticos
 
 - **Dólar (TRM)**: cada visitante consulta la TRM oficial (datos.gov.co).

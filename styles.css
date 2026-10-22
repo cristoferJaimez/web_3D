@@ -569,3 +569,14 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 .share-notes-label span { color: var(--muted); }
 .paint-all { margin-top: .6rem; font-size: .8rem; padding: .4rem .8rem; }
 .paint-all[hidden] { display: none; }
+
+/* ---------- archivo del pedido ---------- */
+.share-file { position: relative; overflow: hidden; padding: .7rem .9rem; border-radius: 12px; font-size: .88rem; border: 1px solid var(--line); background: var(--bg); }
+.share-file[hidden] { display: none; }
+.share-file.ok { color: var(--accent); border-color: rgba(198, 255, 61, .4); }
+.share-file.fail { color: var(--warn); border-color: rgba(255, 179, 71, .4); }
+.share-file.busy i { position: absolute; left: 0; bottom: 0; height: 3px; width: 35%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); animation: slide 1.1s ease-in-out infinite; }
+#share-wa:disabled { opacity: .55; cursor: progress; transform: none; box-shadow: none; }
+#share-copy[hidden] { display: none; }
+.share-card > * { flex-shrink: 0; }
+.share-card img { max-height: 40vh; }

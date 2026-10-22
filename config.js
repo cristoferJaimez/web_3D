@@ -93,6 +93,14 @@ window.CONFIG = {
     min_por_color_extra: 3,   // tu tiempo por cada color adicional: poner el carrete y configurarlo
   },
 
+  // Archivos de los pedidos: se guardan comprimidos en TU Google Drive (privados).
+  // Pega aquí la URL de tu Apps Script (ver apps-script/Code.gs). Vacío = el cliente
+  // adjunta el archivo a mano en WhatsApp.
+  subida: {
+    url: "",
+    max_mb: 30,               // tamaño máximo del .zip; si es más grande, se adjunta en WhatsApp
+  },
+
   // Letreros con iluminación LED. Precios reales en Colombia (octubre 2026, IVA incluido):
   //   tira blanca 12 V: rollo 5 m $30.500 (Ecoled) → ~$6.100/m
   //   tira RGB 12 V: rollo 5 m $15.000–21.000 (MercadoLibre) → ~$4.200/m
