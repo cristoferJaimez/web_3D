@@ -30,6 +30,34 @@ function doPost(e) {
   }
 }
 
+/* ---------- cola pública para la página (sin nombres, celulares ni precios) ---------- */
+function doGet() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get("cola");
+  if (hit) return ContentService.createTextOutput(hit).setMimeType(ContentService.MimeType.JSON);
+  const sh = libro().getSheetByName("Pedidos");
+  const n = sh.getLastRow() - 1;
+  const filas = n > 0 ? sh.getRange(2, 1, n, 15).getValues() : [];
+  const orden = { Imprimiendo: 0, Confirmado: 1, Listo: 2 };
+  const hace14 = Date.now() - 14 * 864e5;
+  const cola = [];
+  let horas = 0, entregados = 0;
+  filas.forEach((f) => {
+    const id = f[0], fecha = f[1], material = String(f[7] || ""), placas = Number(f[8]) || 0, h = Number(f[10]) || 0, estado = f[14];
+    if (estado in orden) {
+      cola.push({ id: String(id), estado, material: material.split(" · ")[0], placas, horas: h,
+        fecha: fecha instanceof Date ? fecha.toISOString() : "" });
+      if (estado !== "Listo") horas += h;
+    } else if (estado === "Entregado" && fecha instanceof Date && fecha.getTime() > hace14) {
+      entregados++;
+    }
+  });
+  cola.sort((a, b) => orden[a.estado] - orden[b.estado] || a.fecha.localeCompare(b.fecha));
+  const out = JSON.stringify({ ok: true, cola, horasPendientes: Math.round(horas * 10) / 10, entregados14: entregados });
+  cache.put("cola", out, 120); // 2 minutos
+  return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
+}
+
 /* ---------- archivo del cliente (.zip) ---------- */
 function guardarArchivo(d) {
   if (!d.data || !/\.zip$/i.test(d.name || "")) throw new Error("Archivo no válido");
@@ -56,7 +84,8 @@ function registrarPedido(d) {
     const sh = libro().getSheetByName("Pedidos");
     sh.appendRow([t(d.id, 40), fecha, Utilities.formatDate(fecha, "America/Bogota", "yyyy-MM"),
       t(d.cliente, 100), t(d.celular, 30), t(d.archivos, 300), t(d.url, 300), t(d.material, 200),
-      num(d.placas), num(d.peso), num(d.horas), num(d.costo), num(d.total), "", "Nuevo", 0, "", "",
+      num(d.placas), num(d.peso), num(d.horas), num(d.costo), num(d.total), "", "Nuevo", 0, "",
+      d.entrega ? new Date(d.entrega) : "",
       t(d.observaciones, 500), t(d.detalle, 4000)]);
     const r = sh.getLastRow();
     sh.getRange(r, 14).setFormula(`=M${r}-L${r}`); // utilidad

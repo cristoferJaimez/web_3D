@@ -93,6 +93,13 @@ window.CONFIG = {
     min_por_color_extra: 3,   // tu tiempo por cada color adicional: poner el carrete y configurarlo
   },
 
+  // Tiempos de entrega (cola del taller leída de tu hoja de Google)
+  produccion: {
+    horas_por_dia: 14,        // horas que imprime la A1 en un día normal
+    margen_fallas: 0.20,      // +20 % de tiempo por reimpresiones y ajustes
+    dias_extra: 1,            // acabado, empaque y despacho
+  },
+
   // Archivos de los pedidos: se guardan comprimidos en TU Google Drive (privados).
   // Pega aquí la URL de tu Apps Script (ver apps-script/Code.gs). Vacío = el cliente
   // adjunta el archivo a mano en WhatsApp.

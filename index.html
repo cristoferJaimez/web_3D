@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=74">
+  <link rel="stylesheet" href="styles.css?v=75">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -20,6 +20,7 @@
       <a href="#cotizador">Cotizar</a>
       <a href="#catalogo">Catálogo</a>
       <a href="#materiales">Materiales</a>
+      <a href="#taller">Taller</a>
       <a href="#contacto">Contacto</a>
     </nav>
     <div class="nav-right">
@@ -184,6 +185,7 @@
             <b id="r-total">$ —</b>
             <small id="r-unit"></small>
             <small id="r-fx" class="fx"></small>
+            <small id="r-eta" class="eta"></small>
           </div>
           <details class="breakdown">
             <summary>Ver desglose</summary>
@@ -222,6 +224,17 @@
   </section>
 
   <!-- CÓMO FUNCIONA -->
+  <!-- TALLER EN VIVO: cola de pedidos leída de la hoja de control -->
+  <section id="taller" class="section">
+    <div class="section-head">
+      <p class="eyebrow mono">04 / taller en vivo</p>
+      <h2>Así va nuestra impresora</h2>
+      <p class="lead small" id="q-sub">Consultando la cola de impresión…</p>
+    </div>
+    <div class="q-stats" id="q-stats"></div>
+    <div class="q-list" id="q-list"></div>
+  </section>
+
   <section class="section steps">
     <div class="step"><span class="mono">01</span><h3>Sube</h3><p>Tu archivo STL o una idea. Si no tienes modelo, lo diseñamos.</p></div>
     <div class="step"><span class="mono">02</span><h3>Cotiza</h3><p>Material, color, calidad y tamaño. El precio se calcula al instante.</p></div>
@@ -281,8 +294,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-  <script src="config.js?v=74"></script>
+  <script src="config.js?v=75"></script>
   <script src="parser3mf.js?v=3"></script>
-  <script src="app.js?v=74"></script>
+  <script src="app.js?v=75"></script>
 </body>
 </html>

@@ -1751,6 +1751,10 @@
     if (split) unit = r.uniones ? `${r.parts.length} placas + ${r.uniones} ${r.uniones === 1 ? "unión" : "uniones"}` : `${r.parts.length} placas`;
     if (q > 1) unit = `${money(r.total / q)} c/u · ${q} unidades`;
     $("#r-unit").textContent = unit;
+    const dias = deliveryDays(r.hours * q);
+    state.eta = { dias, fecha: addWorkdays(dias) };
+    $("#r-eta").innerHTML = `🗓 Entrega estimada: <b>${dias} ${dias === 1 ? "día hábil" : "días hábiles"}</b> (${fmtDay(state.eta.fecha)})` +
+      (queue.ok && queue.horas ? ` · incluye ${Math.round(queue.horas)} h de pedidos en cola` : "");
     const li = ([k, v], cls = "") => `<li class="${cls}"><span>${k}</span><span>${money(v)}</span></li>`;
     const costLines = r.lines.filter(([k]) => !/^Margen|^Redondeo|^Ajuste/.test(k));
     const margen = r.lines.find(([k]) => /^Margen/.test(k));
@@ -1818,6 +1822,7 @@
       `• Boquilla ${state.nozzle} mm · Calidad ${C.calidades[state.calidad]} (${layerHeight()} mm) · Relleno ${state.infill}% · Escala ${state.scale}%`,
       `• Medidas: ${$("#dims").textContent}`,
       `• Soportes: ${state.supports ? "sí" : "no"} · Cantidad: ${q}`,
+      `• Entrega estimada: ${state.eta.dias} días hábiles (${fmtDay(state.eta.fecha)})`,
     ];
     if (state.led.on) {
       const tipo = C.led.tipos.find((t) => t.id === state.led.tipo);
@@ -2138,6 +2143,58 @@
   }
 
   // blob: imagen de la cotización (o null). opts.files: archivos del cliente para subir.
+  /* ---------------- cola del taller y tiempo de entrega ---------------- */
+  const queue = { ok: false, horas: 0, cola: [], entregados14: 0 };
+
+  // días hábiles hasta entregar un pedido de "horas" de impresión, contando la cola actual
+  function deliveryDays(horas) {
+    const P = C.produccion;
+    const total = (queue.horas + horas) * (1 + P.margen_fallas);
+    return Math.max(1, Math.ceil(total / P.horas_por_dia)) + P.dias_extra;
+  }
+  const addWorkdays = (n) => {
+    const d = new Date();
+    while (n > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0) n--; } // domingo no se entrega
+    return d;
+  };
+  const fmtDay = (d) => d.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
+
+  function loadQueue() {
+    if (!C.subida || !C.subida.url) return Promise.resolve();
+    return fetch(C.subida.url).then((r) => r.json()).then((d) => {
+      if (!d.ok) return;
+      Object.assign(queue, { ok: true, horas: d.horasPendientes || 0, cola: d.cola || [], entregados14: d.entregados14 || 0 });
+    }).catch(() => {}).finally(() => { renderQueue(); if (state.model) update(); });
+  }
+
+  function renderQueue() {
+    const sec = $("#taller");
+    if (!C.subida || !C.subida.url) { sec.hidden = true; return; }
+    if (!queue.ok) {
+      $("#q-sub").textContent = "No pudimos consultar la cola en este momento. Escríbenos por WhatsApp y te contamos.";
+      return;
+    }
+    const enCola = queue.cola.filter((p) => p.estado !== "Listo").length;
+    const inicio = Math.ceil((queue.horas * (1 + C.produccion.margen_fallas)) / C.produccion.horas_por_dia);
+    $("#q-sub").textContent = enCola
+      ? `Tenemos ${enCola} ${enCola === 1 ? "pedido" : "pedidos"} en cola. Un pedido nuevo empezaría a imprimirse ${inicio <= 0 ? "hoy" : inicio === 1 ? "mañana" : `en unos ${inicio} días`}.`
+      : "¡La impresora está libre! Tu pedido empieza a imprimirse en cuanto lo confirmes.";
+    const stat = (n, t) => `<div><b>${n}</b><span>${t}</span></div>`;
+    $("#q-stats").innerHTML =
+      stat(queue.cola.filter((p) => p.estado === "Imprimiendo").length, "imprimiendo ahora") +
+      stat(queue.cola.filter((p) => p.estado === "Confirmado").length, "en espera") +
+      stat(`${Math.round(queue.horas)} h`, "de impresión en cola") +
+      stat(queue.entregados14, "entregados (últimos 14 días)");
+    const ico = { Imprimiendo: "🖨", Confirmado: "⏳", Listo: "📦" };
+    $("#q-list").innerHTML = queue.cola.map((p) => `
+      <div class="q-item ${p.estado.toLowerCase()}">
+        <span class="q-state">${ico[p.estado] || "•"} ${p.estado}</span>
+        <b class="mono">${p.id}</b>
+        <span>${p.material || "—"}</span>
+        <span class="mono">${p.placas || 1} ${p.placas === 1 ? "placa" : "placas"} · ${fmtTime(p.horas || 0)}</span>
+      </div>`).join("") || `<p class="hint">Sin pedidos en cola.</p>`;
+  }
+
   // Datos del pedido para la hoja de control (Google Sheets, ver apps-script/Code.gs)
   function buildOrder(r) {
     const d = new Date(), pad = (n) => String(n).padStart(2, "0");
@@ -2153,6 +2210,7 @@
       archivos: (state.sourceFiles || []).map((f) => f.name).join(", ") || state.model.name,
       placas: r.parts.length, peso: Math.round(r.grams * q), horas: Math.round(r.hours * q * 10) / 10,
       costo: Math.round(r.costoProd), total: r.total,
+      entrega: addWorkdays(deliveryDays(r.hours * q)).toISOString(),
     };
   }
 
@@ -2761,4 +2819,7 @@
   initCatalog();
   renderPrices();
   loadDailyPrices().then(renderPrices).then(loadTRM).then(renderPrices);
+  renderQueue();
+  loadQueue();
+  setInterval(loadQueue, 5 * 60 * 1000); // refrescar la cola cada 5 minutos
 })();
