@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=82">
+  <link rel="stylesheet" href="styles.css?v=84">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -143,6 +143,14 @@
         </div>
 
         <div class="field">
+          <label class="toggle"><input type="checkbox" id="hw-on"><span></span>🔩 Lleva tornillería, insertos o imanes</label>
+          <div class="led-box hw-box" id="hw-box" hidden>
+            <div id="hw-list"></div>
+            <p class="hint">Indica cuántas unidades lleva cada pieza. Incluye el material y la instalación.</p>
+          </div>
+        </div>
+
+        <div class="field">
           <label>Boquilla <span class="hint-inline" id="nozzle-name"></span></label>
           <div class="chips" id="n-chips"></div>
         </div>
@@ -262,8 +270,8 @@
       <h3 id="share-title">Enviar por WhatsApp</h3>
       <img id="share-img" alt="Imagen que vas a enviar">
       <div class="share-client" id="share-client" hidden>
-        <label>Tu nombre<input id="share-name" maxlength="80" autocomplete="name" placeholder="Nombre y apellido"></label>
-        <label>Celular <span>(opcional)</span><input id="share-phone" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="300 123 4567"></label>
+        <label><span class="lbl">Tu nombre</span><input id="share-name" maxlength="80" autocomplete="name" placeholder="Nombre y apellido"></label>
+        <label><span class="lbl">Celular <em>(opcional)</em></span><input id="share-phone" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="300 123 4567"></label>
       </div>
       <label class="share-notes-label" for="share-notes">¿Quieres decirnos algo más? <span>(opcional)</span></label>
       <textarea id="share-notes" rows="2" maxlength="500" placeholder="Ej.: lo necesito para el viernes, prefiero recoger en Bogotá…"></textarea>
@@ -294,8 +302,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-  <script src="config.js?v=82"></script>
+  <script src="config.js?v=84"></script>
   <script src="parser3mf.js?v=3"></script>
-  <script src="app.js?v=82"></script>
+  <script src="app.js?v=84"></script>
 </body>
 </html>

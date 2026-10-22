@@ -127,6 +127,17 @@ window.CONFIG = {
     min_por_metro: 10,        // pegar y ajustar la tira por cada metro
   },
 
+  // Tornillería y herrajes que se instalan en la pieza. Precios de referencia por unidad
+  // (compra al por mayor en Colombia): revísalos con tu proveedor.
+  herrajes: {
+    margen: 0.20,             // margen sobre el material (tu tiempo usa el margen del taller)
+    items: [
+      { id: "inserto", nombre: "Inserto roscado M3", desc: "Latón, instalado con calor", precio: 500, min: 1.5 },
+      { id: "tornillo", nombre: "Tornillo M3 con tuerca", desc: "Acero, 10–20 mm", precio: 300, min: 0.5 },
+      { id: "iman", nombre: "Imán de neodimio 6×3 mm", desc: "Pegado con adhesivo", precio: 400, min: 1 },
+    ],
+  },
+
   acabados: {
     min_cambio_filamento: 4,  // sin AMS: descargar y cargar filamento entre placas de distinto color
     // Pintura: tiempo fijo por pedido (preparar, imprimar, secar, retocar) + tiempo por área visible.

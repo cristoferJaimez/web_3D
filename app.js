@@ -33,6 +33,7 @@
     offPlates: new Set(), // placas que el cliente no quiere imprimir
     baseColor: 0, // color de las piezas sin pintar en multicolor
     led: { on: false, tipo: "blanco", metros: null }, // metros null = sugerido por la pieza
+    herrajes: { on: false, qty: {} }, // id → unidades por pieza
     fit: "ajustar", // ajustar a la impresora | dividir en placas
     currency: "COP",
     infill: 20,
@@ -1635,6 +1636,15 @@
       addExtra("led", `Iluminación LED · ${tipo.nombre.toLowerCase()}: ${dec(m)} m + fuente + instalación`, minutos, materiales, L.margen);
     }
 
+    // tornillería, insertos e imanes: material + instalación
+    const hw = hardwareList();
+    if (hw.length) {
+      const H = C.herrajes;
+      const materiales = hw.reduce((a, it) => a + it.n * it.precio, 0) * q;
+      const minutos = hw.reduce((a, it) => a + it.n * it.min, 0) * q;
+      addExtra("herrajes", `Tornillería: ${hw.map((it) => `${it.n} × ${it.nombre.charAt(0).toLowerCase() + it.nombre.slice(1)}`).join(", ")}`, minutos, materiales, H.margen);
+    }
+
     const sum = (f) => parts.reduce((a, p) => a + f(p), 0);
     const bruto = sum((p) => p.precio) + extras.reduce((a, e) => a + e.precio, 0);
     const total = Math.max(bruto, roundTo(K.pedido_minimo, K.redondeo));
@@ -1821,7 +1831,7 @@
           ${p.off ? "" : piecesBlock(i, p)}`).join("")
         : piecesBlock(0, r.parts[0]).replace('<div class="pieces">', `<div class="pieces"><h5>Color de cada pieza${colorInfo(r.parts[0])}</h5>`);
       const extras = r.extras.map((e) => `
-        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
+        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡", herrajes: "🔩" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
       const minimo = r.minimo > 0 ? `
         <div class="plate extra"><i>$</i><div><span>Ajuste a pedido mínimo</span></div><b>${money(r.minimo)}</b></div>` : "";
       const offN = r.allParts.length - r.parts.length;
@@ -1844,6 +1854,8 @@
       const tipo = C.led.tipos.find((t) => t.id === state.led.tipo);
       lines.push(`• Letrero con LED ${tipo.nombre.toLowerCase()}: ${dec(ledMeters())} m de tira, fuente e instalación`);
     }
+    const hwMsg = hardwareList();
+    if (hwMsg.length) lines.push(`• Tornillería: ${hwMsg.map((it) => `${it.n} × ${it.nombre.charAt(0).toLowerCase() + it.nombre.slice(1)}`).join(", ")}${q > 1 ? " (por unidad)" : ""}`);
     if (split) {
       r.parts.forEach((p, i) => {
         lines.push(`   – Placa ${p.label || i + 1}: ${fmtG(p.r.grams * q)}, ${fmtTime(p.r.hours * q)}` +
@@ -1956,6 +1968,22 @@
       : `Sugerido para tu pieza: ${suggestedMeters().toLocaleString("es-CO")} m.`) + " Incluye fuente, cableado e instalación.";
   }
 
+  // herrajes elegidos con su cantidad
+  function hardwareList() {
+    if (!state.herrajes.on) return [];
+    return C.herrajes.items.map((it) => ({ ...it, n: state.herrajes.qty[it.id] || 0 })).filter((it) => it.n > 0);
+  }
+
+  function renderHardware() {
+    $("#hw-on").checked = state.herrajes.on;
+    $("#hw-box").hidden = !state.herrajes.on;
+    $("#hw-list").innerHTML = C.herrajes.items.map((it) => `
+      <div class="hw-row">
+        <span>${it.nombre}<small>${it.desc} · ${money(it.precio * (1 + C.herrajes.margen))} c/u + instalación</small></span>
+        <div class="qty"><button type="button" data-hw="${it.id}" data-d="-1" aria-label="Menos">−</button><input type="number" min="0" max="200" value="${state.herrajes.qty[it.id] || 0}" data-hw-in="${it.id}" aria-label="Cantidad de ${it.nombre}"><button type="button" data-hw="${it.id}" data-d="1" aria-label="Más">+</button></div>
+      </div>`).join("");
+  }
+
   function renderQualities() {
     $("#q-chips").replaceChildren(...C.calidades.map((nombre, i) =>
       chip(`${nombre} · ${dec(nozzle().capas[i])}`, i === state.calidad, () => { state.calidad = i; renderQualities(); update(); })
@@ -1972,6 +2000,23 @@
     renderMaterials();
     renderFinish();
     renderLed();
+    renderHardware();
+    $("#hw-on").onchange = (e) => {
+      state.herrajes.on = e.target.checked;
+      // al activarlo sin cantidades, se sugieren 4 insertos (lo más común)
+      if (state.herrajes.on && !Object.values(state.herrajes.qty).some(Boolean)) state.herrajes.qty.inserto = 4;
+      renderHardware();
+      update();
+    };
+    const setHw = (id, v) => { state.herrajes.qty[id] = Math.max(0, Math.min(200, Math.trunc(+v) || 0)); renderHardware(); update(); };
+    $("#hw-list").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-hw]");
+      if (b) setHw(b.dataset.hw, (state.herrajes.qty[b.dataset.hw] || 0) + +b.dataset.d);
+    });
+    $("#hw-list").addEventListener("change", (e) => {
+      const i = e.target.closest("[data-hw-in]");
+      if (i) setHw(i.dataset.hwIn, i.value);
+    });
     $("#paint-all").onclick = () => {
       state.baseColor = state.color;
       state.pieceColors = {};
@@ -2220,6 +2265,7 @@
     let material = `${mat.nombre} – ${r.colores > 1 ? `multicolor (${r.colores} colores)` : mat.colores[state.color].nombre}`;
     if (state.acabado === "pintado") material += " · pintado a mano";
     if (state.led.on) material += " · LED";
+    if (hardwareList().length) material += " · tornillería";
     if (q > 1) material += ` · ${q} unidades`;
     return {
       id, material,
@@ -2381,7 +2427,7 @@
     const W = 1080, pad = 36, head = 210, foot = 64, gap = 16, info = 56;
     const tile = Math.floor((W - pad * 2 - (cols - 1) * gap) / cols);
     // servicios adicionales (LED, pintura, colores, ensamble, mínimo) para que la ficha cuadre con el total
-    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐" };
+    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐", herrajes: "🔩" };
     const extraRows = r.extras.map((e) => [icons[e.key] || "+", e.label, e.precio]);
     if (r.minimo > 0) extraRows.push(["$", "Ajuste a pedido mínimo", r.minimo]);
     const rowH = 46, extrasH = extraRows.length ? 56 + extraRows.length * rowH : 0;
