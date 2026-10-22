@@ -1684,7 +1684,11 @@
     $("#dims").title = "Ancho × fondo × alto";
 
     const [vx, vy, vz] = C.maquina.volumen_mm;
-    if (state.fit === "ajustar" && maxScale() < 100) {
+    const sobreAms = C.multicolor.ams ? r.parts.filter((p) => p.r.colors > C.multicolor.max_colores) : [];
+    if (sobreAms.length) {
+      const n = sobreAms.map((p) => p.label || r.parts.indexOf(p) + 1).join(", ");
+      showWarn(`⚠ La placa ${n} tiene más de ${C.multicolor.max_colores} colores y el AMS lite solo carga ${C.multicolor.max_colores}. Usa máximo ${C.multicolor.max_colores} colores por placa.`);
+    } else if (state.fit === "ajustar" && maxScale() < 100) {
       showWarn(`Tu modelo es más grande que la ${C.maquina.nombre} (${vx}×${vy}×${vz} mm), así que lo ajustamos al ${maxScale()}%. Para tenerlo a tamaño real elige "Dividir en placas".`);
     } else if (state.model.multi) {
       showWarn(state.model.auto
@@ -1784,12 +1788,14 @@
       lines.push(`• Letrero con LED ${tipo.nombre}: ${ledMeters().toLocaleString("es-CO")} m de tira, fuente e instalación`);
     }
     if (split) {
-      r.parts.forEach((p, i) => lines.push(`   – Placa ${p.label || i + 1}: ${fmtG(p.r.grams * q)}, ${fmtTime(p.r.hours * q)}` +
-        (r.colores > 1 ? `, ${[...new Set(p.r.pieces.map((pc) => pc.color.nombre))].join("/")}` : "") + `, ${cop(p.precio)}`));
+      r.parts.forEach((p, i) => {
+        lines.push(`   – Placa ${p.label || i + 1}: ${fmtG(p.r.grams * q)}, ${fmtTime(p.r.hours * q)}` +
+          (r.colores > 1 ? `, ${[...new Set(p.r.pieces.map((pc) => pc.color.nombre))].join("/")}` : "") + `, ${cop(p.precio)}`);
+        // colores de cada pieza, debajo de su placa (solo si la placa mezcla colores)
+        if (r.colores > 1 && p.r.colors > 1) p.r.pieces.forEach((pc) => lines.push(`      · ${pc.name}: ${pc.color.nombre}`));
+      });
     }
-    if (r.colores > 1) {
-      r.parts.forEach((p) => p.r.pieces.length > 1 && p.r.pieces.forEach((pc) => lines.push(`      · ${pc.name}: ${pc.color.nombre}`)));
-    }
+    if (!split && r.colores > 1) r.parts[0].r.pieces.forEach((pc) => lines.push(`      · ${pc.name}: ${pc.color.nombre}`));
     r.extras.forEach((e) => lines.push(`   – ${e.label}: ${cop(e.precio)}`));
     lines.push(`• Estimado web: ${cop(r.total)}${state.currency === "USD" ? ` (≈ ${money(r.total)})` : ""} (${fmtTime(r.hours * q)})`,
       `Adjunto la ficha con la imagen de cada placa. Te envío el archivo ${state.model.name.split(".").pop().toUpperCase()} por aquí.`);
