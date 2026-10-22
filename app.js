@@ -591,8 +591,10 @@
 
     function resize() {
       const w = el.clientWidth;
-      renderer.setSize(w, w, false);
-      camera.aspect = 1;
+      // el visor es cuadrado, salvo en monitores grandes donde su alto se limita a la pantalla
+      const h = el.clientHeight || w;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
     }
     new ResizeObserver(resize).observe(el);

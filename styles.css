@@ -1,4 +1,5 @@
 :root {
+  --maxw: 1100px; /* ancho del contenido: crece en monitores grandes */
   --bg: #08090c;
   --bg-2: #0f1116;
   --card: rgba(255, 255, 255, 0.035);
@@ -50,7 +51,7 @@ a { color: inherit; text-decoration: none; }
 /* ---------- nav ---------- */
 .nav {
   position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 50;
-  width: min(1100px, calc(100% - 32px));
+  width: min(var(--maxw), calc(100% - 32px));
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   padding: .6rem .7rem .6rem 1.2rem;
   background: rgba(15, 17, 22, .6); backdrop-filter: blur(16px);
@@ -82,7 +83,7 @@ a { color: inherit; text-decoration: none; }
 .hero {
   position: relative; min-height: 100vh; overflow: hidden;
   display: grid; grid-template-rows: 1fr auto; gap: 2rem;
-  padding: 120px max(16px, calc((100% - 1100px) / 2)) 32px;
+  padding: 120px max(16px, calc((100% - var(--maxw)) / 2)) 32px;
 }
 #hero-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .hero::after {
@@ -149,7 +150,7 @@ h2 { font-size: clamp(1.9rem, 4vw, 3rem); line-height: 1.05; letter-spacing: -.0
 @keyframes scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
 /* ---------- secciones ---------- */
-.section { width: min(1100px, calc(100% - 32px)); margin: 0 auto; padding: 110px 0 20px; }
+.section { width: min(var(--maxw), calc(100% - 32px)); margin: 0 auto; padding: 110px 0 20px; }
 .section-head { margin-bottom: 2.4rem; }
 
 /* ---------- cotizador ---------- */
@@ -316,7 +317,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); height: 4px; }
 
 /* ---------- footer ---------- */
 .footer {
-  width: min(1100px, calc(100% - 32px)); margin: 110px auto 0; padding: 2.4rem 0 3rem;
+  width: min(var(--maxw), calc(100% - 32px)); margin: 110px auto 0; padding: 2.4rem 0 3rem;
   border-top: 1px solid var(--line);
   display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1.5rem;
 }
@@ -580,3 +581,19 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 #share-copy[hidden] { display: none; }
 .share-card > * { flex-shrink: 0; }
 .share-card img { max-height: 40vh; }
+
+/* ---------- monitores grandes ---------- */
+@media (min-width: 1500px) {
+  :root { --maxw: 1320px; }
+  html { font-size: 17px; }
+}
+@media (min-width: 1900px) {
+  :root { --maxw: 1560px; }
+  html { font-size: 18px; }
+  .quote { grid-template-columns: 1.45fr 1fr; }
+}
+@media (min-width: 2400px) {
+  :root { --maxw: 1880px; }
+  html { font-size: 20px; }
+}
+.viewer { max-height: calc(100vh - 200px); min-height: 320px; }
