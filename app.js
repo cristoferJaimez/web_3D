@@ -1291,6 +1291,16 @@
   // Uno o varios archivos. Varios STL = un proyecto en piezas: se acomodan en las placas.
   function loadFiles(files) {
     if (!files.length) return;
+    // límite de tamaño: los archivos muy pesados bloquean el navegador del cliente
+    const maxMb = (C.subida && C.subida.archivo_max_mb) || 100;
+    const totalMb = files.reduce((a, f) => a + f.size, 0) / 1048576;
+    if (totalMb > maxMb) {
+      const quien = files.length > 1 ? "Tus archivos pesan" : `Tu archivo pesa`;
+      const msg = `${quien} ${dec(totalMb, 1)} MB y el máximo es ${maxMb} MB. Reduce la malla en tu programa de diseño o escríbenos por WhatsApp y te lo cotizamos a mano.`;
+      showWarn(msg);
+      toast(`⚠ ${msg}`, 12000);
+      return;
+    }
     state.sourceFiles = files; // se envían con el pedido (comprimidos)
     if (files.length === 1) return loadFile(files[0]);
     const stls = files.filter((f) => /\.stl$/i.test(f.name));

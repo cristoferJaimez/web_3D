@@ -105,7 +105,8 @@ window.CONFIG = {
   // adjunta el archivo a mano en WhatsApp.
   subida: {
     url: "https://script.google.com/macros/s/AKfycbyDN7KZmPw9pIS7g0RNbFHdlKwXB9wSpQKmwU8S_9RtJqNHeHy-hAHiXTBtt3JovRi7/exec",
-    max_mb: 30,               // tamaño máximo del .zip; si es más grande, se adjunta en WhatsApp
+    max_mb: 30,               // tamaño máximo del .zip que se sube a Drive; si es más grande, se adjunta en WhatsApp
+    archivo_max_mb: 100,      // tamaño máximo de los archivos que acepta el cotizador (STL/3MF, sumados)
   },
 
   // Letreros con iluminación LED. Precios reales en Colombia (octubre 2026, IVA incluido):
