@@ -180,11 +180,25 @@ window.CONFIG = {
   embalaje: {
     margen: 0.20,
     tamanos: [
-      { hasta_cm: 10, nombre: "Bolsa o caja pequeña", precio: 1500, min: 3 },
-      { hasta_cm: 20, nombre: "Caja mediana", precio: 3000, min: 5 },
-      { hasta_cm: 30, nombre: "Caja grande", precio: 5000, min: 8 },
-      { hasta_cm: 999, nombre: "Caja extra grande", precio: 8000, min: 12 },
+      // lado_cm: medida de la caja (para el peso volumétrico del envío)
+      { hasta_cm: 10, nombre: "Bolsa o caja pequeña", precio: 1500, min: 3, lado_cm: 14 },
+      { hasta_cm: 20, nombre: "Caja mediana", precio: 3000, min: 5, lado_cm: 24 },
+      { hasta_cm: 30, nombre: "Caja grande", precio: 5000, min: 8, lado_cm: 34 },
+      { hasta_cm: 999, nombre: "Caja extra grande", precio: 8000, min: 12, lado_cm: 48 },
     ],
+  },
+
+  // Entrega. El envío se cobra AL COSTO (sin margen): es un estimado, la transportadora confirma.
+  // Referencias 2026 (Interrapidísimo, 1 kg): urbano $11.000–13.500 · regional $14.500–17.500 ·
+  // zona especial $20.000–25.000. Se cobra por el mayor entre peso real y volumétrico (cm³ ÷ 5000).
+  envio: {
+    domicilio_bogota: [9000, 12000, 16000, 24000],   // mensajería en moto según la caja (pequeña…extra grande)
+    zonas: [
+      { id: "principal", nombre: "Ciudad principal", desc: "Medellín, Cali, Barranquilla…", base_kg: 13500, kg_extra: 4000, dias: "1 a 3" },
+      { id: "regional", nombre: "Municipio", desc: "Pueblos y ciudades intermedias", base_kg: 17500, kg_extra: 5000, dias: "2 a 4" },
+      { id: "especial", nombre: "Zona especial", desc: "San Andrés, Amazonas, zonas rurales", base_kg: 25000, kg_extra: 7000, dias: "4 a 8" },
+    ],
+    kg_embalaje: 0.2,         // peso de caja y protección por unidad
   },
 
   acabados: {

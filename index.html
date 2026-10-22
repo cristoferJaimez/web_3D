@@ -18,7 +18,7 @@
       document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=89">
+  <link rel="stylesheet" href="styles.css?v=91">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -158,6 +158,13 @@
             <div id="hw-list"></div>
             <p class="hint">Indica cuántas unidades lleva cada pieza. Incluye el material y la instalación.</p>
           </div>
+        </div>
+
+        <div class="field">
+          <label>Entrega</label>
+          <div class="chips" id="ship-chips"></div>
+          <div class="chips sub" id="zone-chips" hidden></div>
+          <p class="hint" id="ship-hint"></p>
         </div>
 
         <div class="field">
@@ -319,8 +326,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-  <script src="config.js?v=89"></script>
+  <script src="config.js?v=91"></script>
   <script src="parser3mf.js?v=3"></script>
-  <script src="app.js?v=89"></script>
+  <script src="app.js?v=91"></script>
 </body>
 </html>

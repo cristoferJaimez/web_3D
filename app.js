@@ -34,6 +34,7 @@
     baseColor: 0, // color de las piezas sin pintar en multicolor
     led: { on: false, tipo: "blanco", metros: null }, // metros null = sugerido por la pieza
     herrajes: { on: false, qty: {} }, // id → unidades por pieza
+    envio: { modo: "taller", zona: "principal" }, // taller | bogota | nacional
     fit: "ajustar", // ajustar a la impresora | dividir en placas
     currency: "COP",
     infill: 20,
@@ -1649,13 +1650,20 @@
     if (C.embalaje) {
       const largoCm = Math.max(state.model.size.x, state.model.size.y, state.model.size.z) * s / 10;
       const E = C.embalaje, caja = E.tamanos.find((t) => largoCm <= t.hasta_cm) || E.tamanos[E.tamanos.length - 1];
+      state.caja = { ...caja, idx: E.tamanos.indexOf(caja) };
       addExtra("embalaje", `Embalaje: ${caja.nombre.charAt(0).toLowerCase() + caja.nombre.slice(1)} + protección${q > 1 ? ` (${q} unidades)` : ""}`,
         caja.min * q, caja.precio * q, E.margen);
     }
 
+    // envío al costo (sin margen): domicilio en Bogotá por tamaño de caja o transportadora por peso
+    const ship = shippingCost(parts.reduce((a, p) => a + p.r.grams, 0), q);
+    if (ship) extras.push({ key: "envio", label: ship.label, minutos: 0, insumos: ship.valor, costo: ship.valor, margen: 0, precio: roundTo(ship.valor, K.redondeo) });
+
     const sum = (f) => parts.reduce((a, p) => a + f(p), 0);
     const bruto = sum((p) => p.precio) + extras.reduce((a, e) => a + e.precio, 0);
-    const total = Math.max(bruto, roundTo(K.pedido_minimo, K.redondeo));
+    // el pedido mínimo aplica a la producción; el envío se suma aparte
+    const envioPrecio = ship ? roundTo(ship.valor, K.redondeo) : 0;
+    const total = Math.max(bruto - envioPrecio, roundTo(K.pedido_minimo, K.redondeo)) + envioPrecio;
 
     const mat = C.materiales[state.mat], color = mat.colores[state.color];
     const t = (k) => sum((p) => p.r[k]) * q;
@@ -1839,7 +1847,7 @@
           ${p.off ? "" : piecesBlock(i, p)}`).join("")
         : piecesBlock(0, r.parts[0]).replace('<div class="pieces">', `<div class="pieces"><h5>Color de cada pieza${colorInfo(r.parts[0])}</h5>`);
       const extras = r.extras.map((e) => `
-        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡", herrajes: "🔩", embalaje: "📦" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
+        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡", herrajes: "🔩", embalaje: "📦", envio: "🚚" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
       const minimo = r.minimo > 0 ? `
         <div class="plate extra"><i>$</i><div><span>Ajuste a pedido mínimo</span></div><b>${money(r.minimo)}</b></div>` : "";
       const offN = r.allParts.length - r.parts.length;
@@ -1862,6 +1870,8 @@
       const tipo = C.led.tipos.find((t) => t.id === state.led.tipo);
       lines.push(`• Letrero con LED ${tipo.nombre.toLowerCase()}: ${dec(ledMeters())} m de tira, fuente e instalación`);
     }
+    const sh = shippingCost(r.grams, q);
+    lines.push(`• Entrega: ${sh ? sh.label : "recojo en el taller"}${sh && state.envio.modo === "nacional" ? ` · + ${sh.dias} días de transporte` : ""}`);
     const hwMsg = hardwareList();
     if (hwMsg.length) lines.push(`• Tornillería: ${hwMsg.map((it) => `${it.n} × ${it.nombre.charAt(0).toLowerCase() + it.nombre.slice(1)}`).join(", ")}${q > 1 ? " (por unidad)" : ""}`);
     if (split) {
@@ -1976,6 +1986,41 @@
       : `Sugerido para tu pieza: ${suggestedMeters().toLocaleString("es-CO")} m.`) + " Incluye fuente, cableado e instalación.";
   }
 
+  /* ---------------- envío ---------------- */
+  // valor estimado del envío del pedido completo, o null si lo recoge en el taller
+  function shippingCost(gramos, q) {
+    const S = C.envio, m = state.envio.modo;
+    if (!S || m === "taller") return null;
+    const caja = state.caja || { idx: 1, lado_cm: 24 };
+    if (m === "bogota") {
+      const v = (S.domicilio_bogota[caja.idx] || S.domicilio_bogota[S.domicilio_bogota.length - 1]) * Math.ceil(q / 3); // hasta 3 cajas por viaje
+      return { valor: v, label: "Domicilio en Bogotá (mensajería, estimado)", dias: "el mismo día" };
+    }
+    const z = S.zonas.find((x) => x.id === state.envio.zona) || S.zonas[0];
+    const real = (gramos / 1000 + S.kg_embalaje) * q;
+    const vol = (caja.lado_cm ** 3 / 5000) * q;
+    const kg = Math.max(1, Math.ceil(Math.max(real, vol)));
+    const valor = z.base_kg + (kg - 1) * z.kg_extra;
+    return { valor, kg, dias: z.dias, label: `Envío nacional · ${z.nombre.toLowerCase()} · ${kg} kg cobrables (estimado)` };
+  }
+
+  function renderShipping() {
+    const S = C.envio;
+    const modos = { taller: "Recojo en el taller", bogota: "Domicilio en Bogotá", nacional: "Envío nacional" };
+    $("#ship-chips").replaceChildren(...Object.entries(modos).map(([k, t]) =>
+      chip(t, k === state.envio.modo, () => { state.envio.modo = k; renderShipping(); update(); })));
+    const zc = $("#zone-chips");
+    zc.hidden = state.envio.modo !== "nacional";
+    zc.replaceChildren(...S.zonas.map((z) =>
+      chip(z.nombre, z.id === state.envio.zona, () => { state.envio.zona = z.id; renderShipping(); update(); })));
+    const z = S.zonas.find((x) => x.id === state.envio.zona);
+    $("#ship-hint").textContent = {
+      taller: "Sin costo. Te avisamos por WhatsApp cuando esté listo para recoger.",
+      bogota: "Mensajería en moto. Valor estimado según el tamaño de la caja; se confirma al despachar.",
+      nacional: `${z.desc}. Llega en ${z.dias} días hábiles. Valor estimado por peso o tamaño de la caja; la transportadora lo confirma.`,
+    }[state.envio.modo];
+  }
+
   // herrajes elegidos con su cantidad
   function hardwareList() {
     if (!state.herrajes.on) return [];
@@ -2020,6 +2065,7 @@
     renderFinish();
     renderLed();
     renderHardware();
+    renderShipping();
     $("#hw-on").onchange = (e) => {
       state.herrajes.on = e.target.checked;
       // al activarlo sin cantidades, se sugieren 4 insertos (lo más común)
@@ -2483,7 +2529,7 @@
     const W = 1080, pad = 36, head = 210, foot = 64, gap = 16, info = 56;
     const tile = Math.floor((W - pad * 2 - (cols - 1) * gap) / cols);
     // servicios adicionales (LED, pintura, colores, ensamble, mínimo) para que la ficha cuadre con el total
-    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐", herrajes: "🔩", embalaje: "📦" };
+    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐", herrajes: "🔩", embalaje: "📦", envio: "🚚" };
     const extraRows = r.extras.map((e) => [icons[e.key] || "+", e.label, e.precio]);
     if (r.minimo > 0) extraRows.push(["$", "Ajuste a pedido mínimo", r.minimo]);
     const rowH = 46, extrasH = extraRows.length ? 56 + extraRows.length * rowH : 0;
