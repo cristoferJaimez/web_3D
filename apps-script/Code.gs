@@ -62,7 +62,9 @@ function doGet(e) {
     }
   });
   cola.sort((a, b) => orden[a.estado] - orden[b.estado] || a.fecha.localeCompare(b.fecha));
-  const out = JSON.stringify({ ok: true, cola, horasPendientes: Math.round(horas * 10) / 10, entregados14: entregados });
+  let taller = null;
+  try { taller = leerTaller(); } catch (err) { /* sin hojas de taller: la página sigue normal */ }
+  const out = JSON.stringify({ ok: true, cola, horasPendientes: Math.round(horas * 10) / 10, entregados14: entregados, taller });
   cache.put("cola", out, 60); // 1 minuto (y se borra al editar la hoja: ver activarActualizacion)
   return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
 }
@@ -163,6 +165,7 @@ function prepararLibro(ss) {
   formatoPedidos(sh);
   crearResumen(ss);
   crearGanancias(ss);
+  crearTaller(ss);
 }
 
 function formatoPedidos(sh) {
@@ -295,6 +298,106 @@ function actualizarHoja() {
   activarActualizacion();
   CacheService.getScriptCache().remove("cola");
   Logger.log("Hoja actualizada: " + ss.getUrl());
+}
+
+/* ---------- estado del taller e inventario: los editas tú y la página los muestra ---------- */
+const ESTADOS_TALLER = ["Funcionando", "En mantenimiento", "Vacaciones"];
+// [material, color, código de color, recargo %, disponible] — lista inicial (la de config.js)
+const INVENTARIO_INICIAL = [
+  ["PLA", "Negro", "#1b1b1f", 0, true],
+  ["PLA", "Blanco", "#f2f2ee", 0, true],
+  ["PLA", "Gris", "#8a8d93", 0, true],
+  ["PLA", "Rojo", "#d7263d", 0, true],
+  ["PLA", "Azul", "#1f6feb", 0, true],
+  ["PLA", "Verde lima", "#b6f23a", 5, true],
+  ["PLA", "Naranja", "#ff7a1a", 0, true],
+  ["PLA", "Silk dorado", "#d4a72c", 25, true],
+  ["PLA", "Silk plata", "#c9ccd1", 25, true],
+  ["PLA", "Brilla en la oscuridad", "#c8f7c5", 35, true],
+  ["PETG", "Negro", "#1b1b1f", 0, true],
+  ["PETG", "Blanco", "#f2f2ee", 0, true],
+  ["PETG", "Transparente", "#cfe8ff", 5, true],
+  ["PETG", "Azul", "#1f6feb", 0, true],
+  ["PETG", "Rojo", "#d7263d", 0, true],
+  ["TPU", "Negro", "#1b1b1f", 0, true],
+  ["TPU", "Transparente", "#e3f1ff", 0, true],
+  ["TPU", "Rojo", "#d7263d", 0, true],
+  ["ASA", "Negro", "#1b1b1f", 0, true],
+  ["ASA", "Blanco", "#f2f2ee", 0, true],
+  ["ASA", "Gris", "#8a8d93", 0, true]
+];
+
+// Crea las hojas "Taller" e "Inventario" en tu hoja de control (ejecútala una vez si ya la tenías).
+function activarTaller() {
+  const ss = libro();
+  crearTaller(ss);
+  activarActualizacion();
+  CacheService.getScriptCache().remove("cola");
+  Logger.log("Listo: " + ss.getUrl());
+}
+
+function crearTaller(ss) {
+  const lista = (v) => SpreadsheetApp.newDataValidation().requireValueInList(v, true).build();
+  if (!ss.getSheetByName("Taller")) {
+    const sh = ss.insertSheet("Taller", 1);
+    sh.getRange("A1").setValue("Estado del taller · lo que pongas aquí se ve en la página").setFontWeight("bold").setFontSize(13);
+    sh.getRange(3, 1, 4, 2).setValues([
+      ["Estado de la impresora", "Funcionando"],
+      ["¿Recibimos pedidos?", "Sí"],
+      ["Imprimimos a partir de (opcional)", ""],
+      ["Mensaje para los clientes (opcional)", ""],
+    ]);
+    sh.getRange("A3:A6").setFontWeight("bold");
+    sh.getRange("B3").setDataValidation(lista(ESTADOS_TALLER));
+    sh.getRange("B4").setDataValidation(lista(["Sí", "No"]));
+    sh.getRange("B5").setDataValidation(SpreadsheetApp.newDataValidation().requireDate().build()).setNumberFormat("dd/mm/yyyy");
+    sh.getRange("B3:B6").setBackground("#f3f8e6");
+    sh.setColumnWidth(1, 270);
+    sh.setColumnWidth(2, 420);
+    sh.getRange(8, 1, 3, 1).setValues([
+      ["Vacaciones: Estado «Vacaciones» y la fecha en que vuelves a imprimir. Los pedidos se reciben y la entrega se cuenta desde esa fecha."],
+      ["Mantenimiento: Estado «En mantenimiento» (con fecha si sabes cuándo termina)."],
+      ["¿Sin pedidos por un tiempo? «¿Recibimos pedidos?» en No: el botón de pedir se desactiva."],
+    ]).setFontColor("#777");
+  }
+  if (!ss.getSheetByName("Inventario")) {
+    const inv = ss.insertSheet("Inventario", 2);
+    inv.getRange(1, 1, 1, 5).setValues([["Material", "Color", "Código de color", "Recargo %", "Disponible"]])
+      .setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
+    inv.setFrozenRows(1);
+    inv.getRange(2, 1, INVENTARIO_INICIAL.length, 5).setValues(INVENTARIO_INICIAL);
+    inv.getRange(2, 5, 300, 1).insertCheckboxes();
+    inv.getRange(2, 1, 300, 1).setDataValidation(lista(["PLA", "PETG", "TPU", "ASA"]));
+    inv.getRange("C1").setNote("Formato #RRGGBB, por ejemplo #ff7a1a. Si lo dejas vacío se usa el color que ya conoce la página.");
+    inv.getRange("D1").setNote("0 = color normal. 25 = el filamento cuesta 25 % más (silk, brilla en la oscuridad…).");
+    inv.getRange("E1").setNote("Desmárcalo cuando se acabe: en la página sale como agotado.");
+    [90, 200, 130, 100, 100].forEach((w, i) => inv.setColumnWidth(i + 1, w));
+  }
+}
+
+// Lo que la página necesita saber: estado, fecha de inicio, mensaje y colores disponibles
+function leerTaller() {
+  const ss = libro();
+  const t = { estado: "Funcionando", recibe: true, desde: "", mensaje: "", inventario: [] };
+  const sh = ss.getSheetByName("Taller");
+  if (sh) {
+    const [estado, recibe, desde, mensaje] = sh.getRange("B3:B6").getValues().map((r) => r[0]);
+    if (ESTADOS_TALLER.indexOf(estado) >= 0) t.estado = estado;
+    t.recibe = String(recibe).trim().toLowerCase() !== "no";
+    if (desde instanceof Date) t.desde = Utilities.formatDate(desde, ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+    t.mensaje = String(mensaje || "").slice(0, 300);
+  }
+  const inv = ss.getSheetByName("Inventario");
+  if (inv && inv.getLastRow() > 1) {
+    t.inventario = inv.getRange(2, 1, inv.getLastRow() - 1, 5).getValues()
+      .filter((r) => r[0] && r[1])
+      .map(([m, c, h, r, d]) => ({
+        material: String(m).trim(), color: String(c).trim().slice(0, 40),
+        hex: /^#[0-9a-f]{6}$/i.test(String(h).trim()) ? String(h).trim() : "",
+        recargo: Number(r) || 0, disponible: d === true,
+      }));
+  }
+  return t;
 }
 
 /* ---------- carpetas ---------- */

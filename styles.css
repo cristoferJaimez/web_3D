@@ -807,3 +807,10 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
   background: var(--surface-2); color: var(--text); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.35);
   font-size: .78rem; line-height: 1.35; font-weight: 500; white-space: normal; text-align: left;
 }
+
+/* ---------- estado del taller e inventario ---------- */
+.taller-aviso { margin: 0 0 1rem; padding: .7rem 1rem; border-radius: 14px; border: 1px solid rgba(255, 196, 0, .45); background: rgba(255, 196, 0, .1); color: var(--text); font-size: .92rem; line-height: 1.45; max-width: 560px; }
+.taller-aviso[hidden] { display: none; }
+.swatch.out { opacity: .35; cursor: not-allowed; background-image: linear-gradient(135deg, transparent 45%, #ff6b6b 45%, #ff6b6b 55%, transparent 55%) !important; }
+.chip:disabled { opacity: .45; cursor: not-allowed; }
+#wa-btn.off { background: var(--line); color: var(--muted); pointer-events: none; }

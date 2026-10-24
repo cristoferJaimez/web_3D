@@ -18,7 +18,7 @@
       document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=114">
+  <link rel="stylesheet" href="styles.css?v=115">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -47,6 +47,7 @@
   <section class="hero">
     <canvas id="hero-canvas" aria-hidden="true"></canvas>
     <div class="hero-content">
+      <p class="taller-aviso" hidden></p>
       <p class="eyebrow mono">// capa por capa · <span data-bind="ciudad">Colombia</span></p>
       <h1>Tus ideas,<br><span class="accent">impresas</span> en 3D.</h1>
       <p class="lead">Sube tu archivo, gíralo en 3D y conoce al instante cuánto cuesta y cuánto tarda en imprimirse. Precios conectados al dólar del día.</p>
@@ -233,6 +234,7 @@
             <label for="notes">Observaciones <span class="hint-inline">(opcional)</span></label>
             <textarea id="notes" rows="2" maxlength="500" placeholder="Ej.: lo necesito para el viernes, la placa 3 en otro tono…"></textarea>
           </div>
+          <p class="taller-aviso" hidden></p>
           <a id="wa-btn" class="btn btn-block" target="_blank" rel="noopener">Pedir por WhatsApp</a>
           <p class="hint">Estimación automática. El precio final se confirma al revisar el archivo.</p>
         </div>
@@ -345,8 +347,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-  <script src="config.js?v=114"></script>
+  <script src="config.js?v=115"></script>
   <script src="parser3mf.js?v=3"></script>
-  <script src="app.js?v=114"></script>
+  <script src="app.js?v=115"></script>
 </body>
 </html>

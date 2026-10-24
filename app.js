@@ -2575,9 +2575,14 @@
 
   function renderMaterials() {
     const box = $("#mat-chips");
-    box.replaceChildren(...Object.entries(C.materiales).map(([k, m]) =>
-      chip(m.nombre, k === state.mat, () => { state.mat = k; state.color = 0; state.pieceColors = {}; renderMaterials(); update(); })
-    ));
+    box.replaceChildren(...Object.entries(C.materiales).map(([k, m]) => {
+      const out = matAgotado(k);
+      const b = chip(m.nombre + (out ? " · agotado" : ""), k === state.mat, () => {
+        state.mat = k; state.color = firstColor(k); state.pieceColors = {}; renderMaterials(); update();
+      });
+      b.disabled = out;
+      return b;
+    }));
     const md = C.materiales[state.mat];
     $("#mat-desc").textContent = md.desc + (md.nota ? ` ⚠ ${md.nota}` : "");
     renderSwatches();
@@ -2594,6 +2599,11 @@
       s.dataset.tip = c.recargo
         ? `${c.nombre}: color especial, +${Math.round(c.recargo * 100)} %. Su filamento es más costoso que el de los colores convencionales.`
         : c.nombre;
+      if (c.agotado) {
+        s.dataset.tip = `${c.nombre}: agotado por ahora`;
+        s.classList.add("out");
+        s.disabled = true;
+      }
       s.setAttribute("aria-label", s.dataset.tip);
       if (c.recargo) s.dataset.extra = "";
       s.onclick = () => {
@@ -2812,6 +2822,7 @@
     initPainting();
     // pedir por WhatsApp con la ficha ilustrada de la cotización
     $("#wa-btn").addEventListener("click", (e) => {
+      if (!taller.recibe) { e.preventDefault(); return; }
       if (!state.lastQuote) return;
       e.preventDefault();
       let blob = null;
@@ -2968,7 +2979,7 @@
     const P = C.produccion;
     const total = (queue.horas + horas) * (1 + P.margen_fallas);
     const caja = (C.embalaje.presentacion[state.presentacion] || {}).dias || 0; // diseño de la caja exhibidora
-    return Math.max(1, Math.ceil(total / P.horas_por_dia)) + P.dias_extra + caja;
+    return Math.max(1, Math.ceil(total / P.horas_por_dia)) + P.dias_extra + caja + diasHastaInicio();
   }
   const addWorkdays = (n) => {
     const d = new Date();
@@ -2991,7 +3002,73 @@
     return fetchScript("cola=1").then((d) => {
       if (!d.ok) return;
       Object.assign(queue, { ok: true, horas: d.horasPendientes || 0, cola: d.cola || [], entregados14: d.entregados14 || 0 });
+      applyTaller(d.taller);
     }).catch(() => {}).finally(() => { renderQueue(); if (state.model) update(); });
+  }
+
+  /* ---------------- estado del taller e inventario (hojas "Taller" e "Inventario") ---------------- */
+  const taller = { estado: "Funcionando", recibe: true, desde: null, mensaje: "" };
+  const matAgotado = (k) => C.materiales[k].colores.every((c) => c.agotado);
+  const firstColor = (k) => Math.max(0, C.materiales[k].colores.findIndex((c) => !c.agotado));
+
+  // días hábiles (sin domingos) desde hoy hasta que se vuelve a imprimir
+  function diasHastaInicio() {
+    if (!taller.desde) return 0;
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    let n = 0;
+    while (d < taller.desde) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0) n++; }
+    return n;
+  }
+
+  function applyTaller(t) {
+    if (!t) return;
+    Object.assign(taller, {
+      estado: t.estado || "Funcionando", recibe: t.recibe !== false, mensaje: t.mensaje || "",
+      desde: t.desde ? new Date(t.desde + "T00:00:00") : null,
+    });
+    // inventario: si la hoja trae colores de un material, esa es la lista que se ofrece (en su orden)
+    const filas = {};
+    for (const r of t.inventario || []) {
+      const k = Object.keys(C.materiales).find((x) => x.toLowerCase() === r.material.toLowerCase()
+        || C.materiales[x].nombre.toLowerCase() === r.material.toLowerCase());
+      if (k) (filas[k] = filas[k] || []).push(r);
+    }
+    const elegido = C.materiales[state.mat].colores[state.color];
+    for (const [k, rows] of Object.entries(filas)) {
+      const antes = C.materiales[k].colores;
+      C.materiales[k].colores = rows.map((r) => {
+        const prev = antes.find((c) => c.nombre.toLowerCase() === r.color.toLowerCase()) || {};
+        return { nombre: r.color, hex: r.hex || prev.hex || "#9aa0a6", recargo: r.recargo ? r.recargo / 100 : prev.recargo || 0, agotado: !r.disponible };
+      });
+    }
+    // lo que estaba elegido sigue elegido si hay; si no, el primer material y color disponibles
+    if (matAgotado(state.mat)) state.mat = Object.keys(C.materiales).find((k) => !matAgotado(k)) || state.mat;
+    const cols = C.materiales[state.mat].colores;
+    const i = elegido ? cols.findIndex((c) => c.nombre === elegido.nombre && !c.agotado) : -1;
+    state.color = i >= 0 ? i : firstColor(state.mat);
+    if (Object.keys(filas).length) state.pieceColors = {};
+    renderMaterials();
+    renderTallerAviso();
+  }
+
+  // aviso arriba de la portada y junto al botón de pedir
+  function renderTallerAviso() {
+    const futuro = diasHastaInicio() > 0, dia = futuro ? fmtDay(taller.desde) : "";
+    const partes = [];
+    if (taller.estado === "Vacaciones") partes.push("🌴 Estamos de vacaciones.");
+    if (taller.estado === "En mantenimiento") partes.push("🔧 La impresora está en mantenimiento.");
+    if (!taller.recibe) partes.push(`Por ahora no estamos recibiendo pedidos${futuro ? `; volvemos el ${dia}` : ""}.`);
+    else if (futuro) partes.push(`${partes.length ? "Recibimos pedidos y empezamos" : "Empezamos"} a imprimir los pedidos nuevos el ${dia}.`);
+    else if (partes.length) partes.push("Puedes cotizar y hacer tu pedido; te confirmamos la fecha por WhatsApp.");
+    if (taller.mensaje) partes.push(taller.mensaje);
+    document.querySelectorAll(".taller-aviso").forEach((el) => {
+      el.hidden = !partes.length;
+      el.textContent = partes.join(" ");
+    });
+    const btn = $("#wa-btn");
+    btn.classList.toggle("off", !taller.recibe);
+    btn.textContent = taller.recibe ? "Pedir por WhatsApp" : "Por ahora no recibimos pedidos";
   }
 
   function renderQueue() {
@@ -3005,7 +3082,8 @@
     const imprimiendo = queue.cola.filter((p) => p.estado === "Imprimiendo");
     const espera = queue.cola.filter((p) => p.estado === "En proceso");
     const inicio = Math.ceil((queue.horas * (1 + P.margen_fallas)) / P.horas_por_dia);
-    const cuando = queue.horas <= 0 ? "Hoy" : inicio <= 1 ? "Mañana" : `En ~${inicio} días`;
+    let cuando = queue.horas <= 0 ? "Hoy" : inicio <= 1 ? "Mañana" : `En ~${inicio} días`;
+    if (diasHastaInicio()) cuando = fmtDay(taller.desde).replace(/^\w/, (c) => c.toUpperCase());
     $("#q-sub").textContent = espera.length || imprimiendo.length
       ? "Trabajamos por turnos: cada pedido confirmado entra a la cola en orden de llegada."
       : "¡La impresora está libre! Tu pedido empieza a imprimirse en cuanto lo confirmes.";
