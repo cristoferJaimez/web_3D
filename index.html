@@ -18,14 +18,14 @@
       document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=105">
+  <link rel="stylesheet" href="styles.css?v=114">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
 
   <header class="nav">
     <a href="#" class="brand"><img src="logo.svg" class="brand-mark" alt="" width="30" height="30"><span data-bind="nombre">HHH3D</span></a>
-    <nav class="nav-links">
+    <nav class="nav-links" id="nav-links">
       <a href="#cotizador">Cotizar</a>
       <a href="#catalogo">Catálogo</a>
       <a href="#materiales">Materiales</a>
@@ -39,6 +39,7 @@
         <button type="button" data-cur="USD">USD</button>
       </div>
       <a href="#cotizador" class="btn btn-sm"><span class="hide-sm">Sube tu archivo</span><span class="show-sm">Cotizar</span></a>
+      <button type="button" class="menu-btn" id="menu-btn" aria-label="Abrir menú" aria-expanded="false" aria-controls="nav-links">☰</button>
     </div>
   </header>
 
@@ -64,7 +65,7 @@
       <div class="hud-grid">
         <div><span>Boquilla</span><b id="hud-noz">25°</b><small id="hud-noz-t">/ 220 °C</small></div>
         <div><span>Cama</span><b id="hud-bed">25°</b><small id="hud-bed-t">/ 65 °C</small></div>
-        <div><span>Material</span><b id="hud-mat">PLA</b><small>Verde lima</small></div>
+        <div><span>Material</span><b id="hud-mat">PLA</b><small id="hud-color">Verde lima</small></div>
         <div><span>Consumido</span><b id="hud-g">0.0 g</b><small id="hud-m">0.00 m</small></div>
         <div><span>Capa</span><b id="hud-layer">000</b><small id="hud-layers">/ 000</small></div>
         <div><span>Velocidad</span><b id="hud-speed">0</b><small>mm/s</small></div>
@@ -159,6 +160,12 @@
             <div id="hw-list"></div>
             <p class="hint">Indica cuántas unidades lleva cada pieza. Incluye el material y la instalación.</p>
           </div>
+        </div>
+
+        <div class="field">
+          <label>Presentación</label>
+          <div class="chips" id="pres-chips"></div>
+          <p class="hint" id="pres-hint"></p>
         </div>
 
         <div class="field">
@@ -338,8 +345,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-  <script src="config.js?v=105"></script>
+  <script src="config.js?v=114"></script>
   <script src="parser3mf.js?v=3"></script>
-  <script src="app.js?v=105"></script>
+  <script src="app.js?v=114"></script>
 </body>
 </html>

@@ -193,6 +193,25 @@ window.CONFIG = {
       { hasta_cm: 30, nombre: "Caja grande", precio: 5000, min: 8, lado_cm: 34 },
       { hasta_cm: 999, nombre: "Caja extra grande", precio: 8000, min: 12, lado_cm: 48 },
     ],
+    // Presentación opcional (además de la caja con protección). Cada lista va por tamaño de caja:
+    // [pequeña, mediana, grande, extra grande]. Costos de referencia: ajústalos a tus proveedores.
+    presentacion: {
+      regalo: {
+        nombre: "Para regalo", costo: [3500, 4500, 6000, 8000], min: 5,
+        desc: "Caja blanca o kraft, papel seda, moño, sticker HHH3D y tarjeta con tu mensaje (escríbelo en las observaciones).",
+      },
+      // exhibidores impresos en PLA: se cobran como impresión (filamento, luz, máquina, tu tiempo y margen)
+      // gramos: estimado por tamaño de la pieza; min: minutos de diseño y preparación
+      base: {
+        nombre: "Base exhibidora impresa", impresa: true, gramos: [30, 70, 140, 240], min: 10,
+        desc: "Base o paral impreso en PLA para exhibir la pieza (en el mismo material, color a elegir).",
+      },
+      caja: {
+        nombre: "Caja exhibidora impresa", impresa: true, gramos: [90, 220, 450, 800], min: 40, dias: 2,
+        desc: "Caja impresa en PLA con tapa, cuna a la medida de la pieza y la temática o el nombre que quieras. Es un valor desde: el diseño se confirma por WhatsApp.",
+      },
+    },
+    gramos_hora: 15, // velocidad de impresión de los exhibidores (Bambu A1, PLA, calidad estándar)
   },
 
   // Entrega. El envío se cobra AL COSTO (sin margen): es un estimado, la transportadora confirma.

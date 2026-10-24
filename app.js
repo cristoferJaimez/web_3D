@@ -35,6 +35,7 @@
     led: { on: false, tipo: "blanco", metros: null }, // metros null = sugerido por la pieza
     herrajes: { on: false, qty: {} }, // id → unidades por pieza
     envio: { modo: "taller", zona: "principal" }, // taller | bogota | nacional
+    presentacion: "estandar", // estandar | regalo | base | caja
     fit: "ajustar", // ajustar a la impresora | dividir en placas
     currency: "COP",
     infill: 20,
@@ -305,7 +306,212 @@
     });
   }
 
+  /* ---------- temática del mes en la animación de portada ----------
+     Se elige por la fecha; sin temática, el logo de siempre. Para probar otra (solo en localhost
+     o con ?taller): ?mes=12 (y un día: &dia=25), y un error con ?error=hilos | despegue | espagueti.
+     errores: probabilidad de que una vuelta salga con un error de impresión. */
+  const TEMAS = {
+    10: {
+      nombre: "brujas", letras: 0xff7a1a, filamento: 0xff7a1a, tresd: 0x8b3dff, luz: 0xff6a00,
+      color: "Naranja calabaza", imprimiendo: "IMPRIMIENDO HECHIZOS", errores: 0.4, calabazas: true, murcielagos: true,
+    },
+    12: {
+      nombre: "navidad", letras: 0xe63946, filamento: 0x22a35a, tresd: 0x1f9d55, luz: 0x7fc8ff,
+      color: "Rojo navideño", imprimiendo: "IMPRIMIENDO REGALOS", arbol: true, nieve: true, cristales: true, luces: true,
+    },
+  };
+
+  // Relleno giroide para una pieza decorativa cerrada: al cortarla se ve su interior como en el logo.
+  // order: turno en el stencil (cada pieza el suyo); la tapa queda en g.userData.cap
+  function printedFill(g, geo, color, clip, order, size) {
+    for (const [side, op] of [[THREE.BackSide, THREE.IncrementWrapStencilOp], [THREE.FrontSide, THREE.DecrementWrapStencilOp]]) {
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        depthWrite: false, depthTest: false, colorWrite: false, side, clippingPlanes: clip,
+        stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilFail: op, stencilZFail: op, stencilZPass: op,
+      }));
+      m.renderOrder = order;
+      g.add(m);
+    }
+    const cap = new THREE.Mesh(new THREE.PlaneGeometry(size, size), gyroidCap(color));
+    cap.rotation.x = -Math.PI / 2;
+    cap.renderOrder = order + 0.2;
+    cap.onAfterRender = (rd) => rd.clearStencil();
+    g.add(cap);
+    g.userData.cap = cap;
+  }
+
+  // une varias geometrías en una sola (sin índices)
+  function mergeGeos(list) {
+    const parts = list.map((g) => (g.index ? g.toNonIndexed() : g).attributes.position.array);
+    const out = new Float32Array(parts.reduce((n, a) => n + a.length, 0));
+    let o = 0;
+    for (const a of parts) { out.set(a, o); o += a.length; }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(out, 3));
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  // árbol de Navidad (tres pisos y tronco) con bolas y estrella; base en y = 0
+  function xmasTree(clip, order) {
+    const g = new THREE.Group();
+    const tiers = [[0.85, 0.95, 0.72], [0.66, 0.85, 1.3], [0.46, 0.72, 1.85]]; // radio, alto, centro
+    const geo = mergeGeos([
+      new THREE.CylinderGeometry(0.15, 0.17, 0.3, 12).translate(0, 0.15, 0),
+      ...tiers.map(([r, h, y]) => new THREE.ConeGeometry(r, h, 28).translate(0, y, 0)),
+    ]);
+    const body = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x1f8f4e, roughness: 0.6, emissive: 0x0d3d22, emissiveIntensity: 0.3, clippingPlanes: clip }));
+    body.renderOrder = 10;
+    g.add(body);
+    const ballCols = [0xe63946, 0xffd166, 0x4cc9f0];
+    for (let k = 0; k < 12; k++) {
+      const [r, h, y] = tiers[k % 3], f = 0.25, a = k * 2.3;
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8),
+        new THREE.MeshStandardMaterial({ color: ballCols[k % 3], roughness: 0.25, metalness: 0.4, emissive: ballCols[k % 3], emissiveIntensity: 0.35, clippingPlanes: clip }));
+      ball.position.set(Math.cos(a) * r * (1 - f) * 1.02, y - h / 2 + f * h, Math.sin(a) * r * (1 - f) * 1.02);
+      g.add(ball);
+    }
+    const star = new THREE.Shape();
+    for (let i = 0; i < 10; i++) {
+      const rr = i % 2 ? 0.09 : 0.22, a = Math.PI / 2 + (i * Math.PI) / 5;
+      star[i ? "lineTo" : "moveTo"](Math.cos(a) * rr, Math.sin(a) * rr);
+    }
+    const st = new THREE.Mesh(new THREE.ExtrudeGeometry(star, { depth: 0.06, bevelEnabled: false }),
+      new THREE.MeshBasicMaterial({ color: 0xffd166, clippingPlanes: clip }));
+    st.position.set(0, 2.38, -0.03);
+    g.add(st);
+    printedFill(g, geo, 0x1f8f4e, clip, order, 2.1);
+    return g;
+  }
+
+  // regalo con cinta dorada; base en y = 0
+  function giftBox(clip, order) {
+    const g = new THREE.Group();
+    const geo = new THREE.BoxGeometry(0.9, 0.72, 0.9).translate(0, 0.36, 0);
+    const box = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xe63946, roughness: 0.5, emissive: 0x5a0d14, emissiveIntensity: 0.3, clippingPlanes: clip }));
+    box.renderOrder = 10;
+    const gold = new THREE.MeshStandardMaterial({ color: 0xffd166, roughness: 0.3, metalness: 0.5, emissive: 0x6b4e00, emissiveIntensity: 0.4, clippingPlanes: clip });
+    const r1 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.74, 0.92), gold), r2 = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.74, 0.16), gold);
+    r1.position.y = r2.position.y = 0.36;
+    const bow = [-0.13, 0.13].map((x) => {
+      const t = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.035, 8, 16), gold);
+      t.position.set(x, 0.8, 0);
+      t.rotation.y = Math.PI / 2;
+      t.rotation.x = x > 0 ? 0.5 : -0.5;
+      return t;
+    });
+    g.add(box, r1, r2, ...bow);
+    printedFill(g, geo, 0xe63946, clip, order, 1.4);
+    return g;
+  }
+
+  // letrero dorado con brillo para los saludos (¡Feliz Navidad!, ¡Feliz Año Nuevo!)
+  function greetingSprite(text) {
+    const cv = document.createElement("canvas");
+    const font = "700 120px 'Space Grotesk', 'Segoe UI', sans-serif";
+    const g0 = cv.getContext("2d");
+    g0.font = font;
+    cv.width = Math.ceil(g0.measureText(text).width) + 120;
+    cv.height = 200;
+    const g = cv.getContext("2d");
+    g.font = font;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    const gr = g.createLinearGradient(0, 40, 0, 160);
+    gr.addColorStop(0, "#fff4c2");
+    gr.addColorStop(0.5, "#ffd166");
+    gr.addColorStop(1, "#e0a400");
+    g.shadowColor = "rgba(255, 200, 80, .85)";
+    g.shadowBlur = 28;
+    g.fillStyle = gr;
+    g.fillText(text, cv.width / 2, 104);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthTest: false }));
+    sp.renderOrder = 30;
+    const h = 1.3;
+    sp.scale.set(h * (cv.width / cv.height), h, 1);
+    return sp;
+  }
+
+  // textura redonda y difusa (copos de nieve y brillo de las luces)
+  function softDot() {
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 64;
+    const g = cv.getContext("2d"), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, "rgba(255,255,255,1)");
+    gr.addColorStop(0.4, "rgba(255,255,255,.55)");
+    gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(cv);
+  }
+
+  // cristal de hielo de seis brazos con ramitas
+  function crystalTexture() {
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 128;
+    const g = cv.getContext("2d");
+    g.translate(64, 64);
+    g.strokeStyle = "rgba(200,235,255,.95)";
+    g.lineWidth = 4;
+    g.lineCap = "round";
+    for (let i = 0; i < 6; i++) {
+      g.rotate(Math.PI / 3);
+      g.beginPath();
+      g.moveTo(0, 0); g.lineTo(0, -56);
+      for (const [y, l] of [[-22, 14], [-38, 11], [-50, 7]]) { g.moveTo(0, y); g.lineTo(-l, y - l); g.moveTo(0, y); g.lineTo(l, y - l); }
+      g.stroke();
+    }
+    return new THREE.CanvasTexture(cv);
+  }
+
+  // calabaza con gajos, tallo y cara iluminada (base en y = 0); order: turno en el stencil
+  function pumpkin(r, color, clip, order) {
+    const g = new THREE.Group();
+    const geo = new THREE.SphereGeometry(r, 48, 24);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), z = p.getZ(i);
+      const k = 1 - 0.09 * (1 - Math.cos(8 * Math.atan2(z, x))) / 2; // gajos
+      p.setXYZ(i, x * k, p.getY(i) * 0.78 + r * 0.78, z * k);
+    }
+    geo.computeVertexNormals();
+    const skin = new THREE.MeshStandardMaterial({ color, roughness: 0.55, emissive: color, emissiveIntensity: 0.12, clippingPlanes: clip });
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.08, r * 0.13, r * 0.4, 10),
+      new THREE.MeshStandardMaterial({ color: 0x4a7a2a, roughness: 0.8, clippingPlanes: clip }));
+    stem.position.y = r * 1.62;
+    stem.rotation.z = 0.25;
+    // ojos y boca recortados (luz amarilla por dentro)
+    const shape = (pts) => new THREE.Shape(pts.map(([a, b]) => new THREE.Vector2(a * r, b * r)));
+    const face = [shape([[-0.42, 0.95], [-0.12, 0.95], [-0.27, 1.22]]), shape([[0.12, 0.95], [0.42, 0.95], [0.27, 1.22]]),
+      shape([[-0.45, 0.62], [-0.3, 0.5], [-0.15, 0.6], [0, 0.48], [0.15, 0.6], [0.3, 0.5], [0.45, 0.62], [0.3, 0.42], [0, 0.36], [-0.3, 0.42]])];
+    const glow = new THREE.Mesh(new THREE.ShapeGeometry(face),
+      new THREE.MeshBasicMaterial({ color: 0xffd23f, side: THREE.DoubleSide, clippingPlanes: clip }));
+    glow.position.z = r * 0.93;
+    const body = new THREE.Mesh(geo, skin);
+    body.renderOrder = 10;
+    g.add(body, stem, glow);
+    printedFill(g, geo, color, clip, order, r * 2.4);
+    return g;
+  }
+
+  // silueta de murciélago (alas abiertas)
+  function batGeometry() {
+    const half = [[0, 0.18], [0.12, 0.3], [0.16, 0.12], [0.5, 0.32], [1, 0.42], [0.86, 0.12], [0.7, 0.18], [0.56, -0.02], [0.4, 0.06], [0.24, -0.12], [0, -0.22]];
+    const pts = [...half, ...half.slice(1, -1).reverse().map(([x, y]) => [-x, y])];
+    return new THREE.ShapeGeometry(new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y))));
+  }
+
   function initHero() {
+    // ?mes= y ?error= solo sirven para probar: en la página pública manda la fecha
+    const prueba = TALLER || ["localhost", "127.0.0.1"].includes(location.hostname);
+    const q = new URLSearchParams(prueba ? location.search : "");
+    const hoy = new Date();
+    const mes = +q.get("mes") || hoy.getMonth() + 1, dia = +q.get("dia") || hoy.getDate();
+    const anoNuevo = (mes === 12 && dia === 31) || (mes === 1 && dia <= 5);
+    const T = TEMAS[anoNuevo ? 12 : mes] || {}; // del 1 al 5 de enero sigue la decoración navideña
+    // saludo de fechas especiales encima del logo
+    const saludo = mes === 12 && dia === 25 ? "¡Feliz Navidad!"
+      : anoNuevo ? `¡Feliz Año Nuevo ${hoy.getFullYear() + (mes === 12 ? 1 : 0)}!` : "";
     const canvas = $("#hero-canvas");
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, stencil: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -318,7 +524,7 @@
     const key = new THREE.DirectionalLight(0xffffff, 1.1);
     key.position.set(5, 8, 6);
     scene.add(key);
-    const rim = new THREE.PointLight(0x7c5cff, 2.5, 30);
+    const rim = new THREE.PointLight(T.luz || 0x7c5cff, 2.5, 30);
     rim.position.set(-6, 2, -4);
     scene.add(rim);
 
@@ -329,17 +535,23 @@
     Object.values(geos).forEach((g) => { g.computeBoundingBox(); box.union(g.boundingBox); });
     const { min, max } = box;
     const w = max.x - min.x, d = max.z - min.z;
+    // lo impreso va en "part": gira sobre la esquina derecha si la pieza se despega de la cama
+    const pivot = new THREE.Group(), part = new THREE.Group();
+    pivot.position.set(max.x, min.y, 0);
+    part.position.set(-max.x, -min.y, 0);
+    pivot.add(part);
+    group.add(pivot);
     // el corte se define en coordenadas del logo y se pasa al mundo en cada cuadro
     const localPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), min.y);
     const plane = new THREE.Plane();
 
     const VIOLET = 0x7c5cff;
-    const colors = { letras: ACCENT, boquilla: 0xeceef2, filamento: ACCENT, tresd: VIOLET };
+    const colors = { letras: T.letras || ACCENT, boquilla: 0xeceef2, filamento: T.filamento || ACCENT, tresd: T.tresd || VIOLET };
     const mats = {
-      letras: new THREE.MeshStandardMaterial({ color: ACCENT, roughness: 0.4, metalness: 0.1 }),
+      letras: new THREE.MeshStandardMaterial({ color: colors.letras, roughness: 0.4, metalness: 0.1 }),
       boquilla: new THREE.MeshStandardMaterial({ color: 0xeceef2, roughness: 0.35, metalness: 0.15 }),
-      filamento: new THREE.MeshStandardMaterial({ color: ACCENT, roughness: 0.4, metalness: 0.1, emissive: ACCENT, emissiveIntensity: 0.25 }),
-      tresd: new THREE.MeshStandardMaterial({ color: VIOLET, roughness: 0.45, metalness: 0.1, emissive: VIOLET, emissiveIntensity: 0.12 }),
+      filamento: new THREE.MeshStandardMaterial({ color: colors.filamento, roughness: 0.4, metalness: 0.1, emissive: colors.filamento, emissiveIntensity: 0.25 }),
+      tresd: new THREE.MeshStandardMaterial({ color: colors.tresd, roughness: 0.45, metalness: 0.1, emissive: colors.tresd, emissiveIntensity: 0.12 }),
     };
     const ghostMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.08 });
     const caps = [];
@@ -353,7 +565,7 @@
           stencilFail: op, stencilZFail: op, stencilZPass: op,
         }));
         m.renderOrder = i * 2 + 1;
-        group.add(m);
+        part.add(m);
       }
       const cap = new THREE.Mesh(new THREE.PlaneGeometry(w + 2, d + 2), gyroidCap(colors[k]));
       cap.rotation.x = -Math.PI / 2;
@@ -361,12 +573,12 @@
       cap.renderOrder = i * 2 + 1.5;
       cap.onAfterRender = (r) => r.clearStencil();
       caps.push(cap);
-      group.add(cap);
+      part.add(cap);
 
       Object.assign(mats[k], { clippingPlanes: [plane] });
       const solid = new THREE.Mesh(geo, mats[k]);
       solid.renderOrder = 10;
-      group.add(solid);
+      part.add(solid);
       group.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 20), ghostMat));
     });
 
@@ -377,8 +589,138 @@
     supports.renderOrder = 10;
     const supports3D = new THREE.Mesh(threeDSupportGeometry(), supportMat);
     supports3D.renderOrder = 10;
-    group.add(supports, supports3D);
+    part.add(supports, supports3D);
     let withSupports = true;
+
+    // decoración del mes: piezas que se imprimen junto al "3D" (dentro de la cama) y efectos alrededor
+    const decoPlane = new THREE.Plane(), printed = [];
+    const placeDeco = (big, small) => {
+      big.position.set(max.x - 2.4, min.y, max.z + 0.6);
+      small.position.set(max.x - 0.9, min.y, max.z + 0.3);
+      small.rotation.y = -0.5;
+      printed.push(big, small);
+      group.add(big, small);
+    };
+    if (T.calabazas) placeDeco(pumpkin(0.85, 0xff7a1a, [decoPlane], 8.6), pumpkin(0.5, 0xff9a3c, [decoPlane], 9));
+    if (T.arbol) placeDeco(xmasTree([decoPlane], 8.6), giftBox([decoPlane], 9));
+    // fuegos artificiales de año nuevo: cohetes con estela que estallan en chispas de colores
+    let fw = null;
+    if (anoNuevo && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const N = 1800, geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(N * 3).fill(-999), 3));
+      geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(N * 3), 3));
+      const pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.45, map: softDot(), vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      pts.frustumCulled = false;
+      scene.add(pts);
+      fw = { pts, N, i: 0, next: 0, vel: new Float32Array(N * 3), life: new Float32Array(N), max: new Float32Array(N), base: new Float32Array(N * 3), rocket: new Uint8Array(N),
+        colores: [0xffd166, 0xff4d6d, 0x3ddc84, 0x4cc9f0, 0xc77dff, 0xffffff].map((c) => new THREE.Color(c)) };
+    }
+    const spark = (x, y, z, vx, vy, vz, life, c, rocket = 0) => {
+      const k = fw.i;
+      fw.i = (k + 1) % fw.N;
+      fw.pts.geometry.attributes.position.setXYZ(k, x, y, z);
+      fw.vel.set([vx, vy, vz], k * 3);
+      fw.life[k] = fw.max[k] = life;
+      fw.base.set([c.r, c.g, c.b], k * 3);
+      fw.rocket[k] = rocket;
+    };
+    function fireworks(now, dt) {
+      if (now > fw.next) { // lanza un cohete desde abajo
+        fw.next = now + 0.6 + Math.random() * 0.9;
+        spark(group.position.x + (Math.random() - 0.5) * 16, group.position.y - 5, -4.5,
+          (Math.random() - 0.5) * 0.8, 6 + Math.random() * 1.2, 0, 0.9 + Math.random() * 0.3, new THREE.Color(0xffe8b0), 1);
+      }
+      const pos = fw.pts.geometry.attributes.position, col = fw.pts.geometry.attributes.color, v = fw.vel;
+      const ember = new THREE.Color(0xff9f43);
+      for (let k = 0; k < fw.N; k++) {
+        if (fw.life[k] <= 0) continue;
+        fw.life[k] -= dt;
+        const x = pos.getX(k), y = pos.getY(k), z = pos.getZ(k);
+        if (fw.rocket[k]) {
+          spark(x, y, z, (Math.random() - 0.5) * 0.3, -0.5, 0, 0.35, ember); // estela
+          if (fw.life[k] <= 0) { // estalla
+            const c = fw.colores[Math.floor(Math.random() * fw.colores.length)], n = 130, sp = 3.2 + Math.random() * 1.2;
+            for (let j = 0; j < n; j++) {
+              const u = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, r = Math.sqrt(1 - u * u), f = sp * (0.8 + Math.random() * 0.25);
+              spark(x, y, z, Math.cos(a) * r * f, u * f, Math.sin(a) * r * f, 1.3 + Math.random() * 0.6, j % 7 ? c : fw.colores[5]);
+            }
+          }
+        } else {
+          v[k * 3 + 1] -= 1.8 * dt; // gravedad
+          for (let a = 0; a < 3; a++) v[k * 3 + a] *= 0.985; // el aire las frena
+        }
+        if (fw.life[k] <= 0) { pos.setXYZ(k, 0, -999, 0); col.setXYZ(k, 0, 0, 0); continue; }
+        pos.setXYZ(k, x + v[k * 3] * dt, y + v[k * 3 + 1] * dt, z + v[k * 3 + 2] * dt);
+        const f = fw.rocket[k] ? 1 : Math.pow(fw.life[k] / fw.max[k], 1.3); // se apagan al caer
+        col.setXYZ(k, fw.base[k * 3] * f, fw.base[k * 3 + 1] * f, fw.base[k * 3 + 2] * f);
+      }
+      pos.needsUpdate = col.needsUpdate = true;
+    }
+
+    let banner = null;
+    if (saludo) {
+      banner = greetingSprite(saludo);
+      banner.position.set((min.x + max.x) / 2, max.y + 1.9, 0);
+      group.add(banner);
+    }
+
+    // nieve: copos que caen meciéndose por toda la portada
+    let snow = null;
+    if (T.nieve) {
+      const N = 420, pos = new Float32Array(N * 3);
+      for (let i = 0; i < N; i++) pos.set([(Math.random() - 0.5) * 26, Math.random() * 16 - 7, (Math.random() - 0.5) * 8 - 1], i * 3);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+      snow = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.15, map: softDot(), transparent: true, opacity: 0.85, depthWrite: false }));
+      snow.userData.speed = Float32Array.from({ length: N }, () => 0.35 + Math.random() * 0.5);
+      scene.add(snow);
+    }
+    // cristales de hielo grandes que giran despacio detrás del logo
+    const crystals = [];
+    if (T.cristales) {
+      const tex = crystalTexture();
+      for (let i = 0; i < 8; i++) {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.32, depthWrite: false }));
+        sp.userData = { x: (i / 7 - 0.5) * 20, y: (i % 3) * 2.2 - 1, s: 0.7 + (i % 4) * 0.25, spin: (i % 2 ? 1 : -1) * (0.15 + (i % 3) * 0.08) };
+        crystals.push(sp);
+        scene.add(sp);
+      }
+    }
+    // guirnalda de luces navideñas colgando por detrás del logo, titilando
+    const bulbs = [];
+    if (T.luces) {
+      const cols = [0xff4d4d, 0x3ddc84, 0xffd166, 0x4cc9f0], halo = softDot();
+      const pts = [];
+      for (const [x0, x1] of [[min.x - 0.6, (min.x + max.x) / 2], [(min.x + max.x) / 2, max.x + 0.6]]) {
+        for (let k = 0; k <= 24; k++) {
+          const f = k / 24;
+          pts.push(new THREE.Vector3(x0 + (x1 - x0) * f, max.y + 0.5 - Math.sin(f * Math.PI) * 1.1, min.z - 0.6));
+        }
+      }
+      group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x1d4d2e })));
+      pts.forEach((p, i) => {
+        if (i % 2) return;
+        const c = cols[(i / 2) % cols.length];
+        const b = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), new THREE.MeshBasicMaterial({ color: c }));
+        const h = new THREE.Sprite(new THREE.SpriteMaterial({ map: halo, color: c, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+        b.position.copy(p).y -= 0.06;
+        h.position.copy(b.position);
+        h.scale.setScalar(0.55);
+        b.userData = { halo: h, c: new THREE.Color(c), k: i };
+        bulbs.push(b);
+        group.add(b, h);
+      });
+    }
+    const bats = [];
+    if (T.murcielagos) {
+      const bg = batGeometry(), bm = new THREE.MeshBasicMaterial({ color: 0x3a2266, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+      for (let i = 0; i < 5; i++) {
+        const b = new THREE.Mesh(bg, bm);
+        b.userData = { off: i / 5, size: 0.28 + (i % 3) * 0.1, alt: 1.6 + (i % 2) * 1.2, speed: 0.05 + (i % 3) * 0.015 };
+        bats.push(b);
+        scene.add(b);
+      }
+    }
     const overhangY = (31 - 42) * 0.11; // primera capa con voladizo (base de la boquilla del logo)
 
     // capa que se está imprimiendo: una franja de luz del ancho del logo
@@ -396,6 +738,7 @@
     block.position.y = 0.48;
     nozzle.add(cone, block);
     nozzle.renderOrder = 20;
+    glow.material.color.set(colors.filamento);
     group.add(glow, nozzle);
 
     const grid = new THREE.GridHelper(14, 28, 0x2a2e38, 0x161920);
@@ -448,14 +791,16 @@
     hud["noz-t"].textContent = `/ ${sim.noz} °C`;
     hud["bed-t"].textContent = `/ ${sim.bed} °C`;
     hud.mat.textContent = mat.nombre;
+    if (T.color) $("#hud-color").textContent = T.color;
     hud.layers.textContent = `/ ${sim.layers}`;
     const foot = document.querySelector(".hud-foot span:last-child");
     const supBtn = $("#hud-sup");
+    const footText = () => `Ø 0,4 mm · capa ${dec(sim.capa)} mm · giroide ${sim.infill} % · ${withSupports ? "con" : "sin"} soportes`;
     const renderSupBtn = () => {
       supBtn.textContent = withSupports ? "Soportes: activados" : "Soportes: desactivados";
       supBtn.classList.toggle("on", withSupports);
       supBtn.setAttribute("aria-pressed", withSupports);
-      foot.textContent = `Ø 0,4 mm · capa ${dec(sim.capa)} mm · giroide ${sim.infill} % · ${withSupports ? "con" : "sin"} soportes`;
+      foot.textContent = footText();
       supports.visible = withSupports;
       supports3D.visible = withSupports;
       lastPhase = ""; // refrescar el estado
@@ -464,10 +809,118 @@
 
     const HEAT = 2.5, PRINT = 12, DONE = 2.5, CYCLE = HEAT + PRINT + DONE;
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    /* ---- errores de impresión: de vez en cuando una vuelta sale mal (y se explica cómo se evita) ---- */
+    const ERRORES = {
+      hilos: { at: 0.2, label: "⚠ HILOS ENTRE PIEZAS", fin: "TERMINADO · CON HILOS", tip: "Esto lo evitamos secando el filamento y ajustando la retracción 😉" },
+      despegue: { at: 0.4, label: "⚠ SE DESPEGÓ DE LA CAMA", fin: "✖ IMPRESIÓN FALLIDA", tip: "Esto lo evitamos limpiando la cama y calibrando la primera capa 😉" },
+      espagueti: { at: 0.45, label: "⚠ ESPAGUETI", fin: "✖ IMPRESIÓN FALLIDA", tip: "Esto lo evitamos vigilando cada impresión 😉" },
+    };
+    const forced = ERRORES[q.get("error")] ? q.get("error") : null;
+    const filMat = new THREE.LineBasicMaterial({ color: colors.filamento, transparent: true, opacity: 0.95 });
+    // hilos: tramos colgantes entre partes del logo + uno pegado a la boquilla
+    const MAXH = 80, SEG = 8;
+    const strings = new THREE.LineSegments(new THREE.BufferGeometry(), filMat);
+    strings.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAXH * SEG * 6), 3));
+    strings.frustumCulled = false;
+    const tail = new THREE.Line(new THREE.BufferGeometry(), filMat);
+    tail.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(6), 3));
+    tail.frustumCulled = false;
+    // espagueti: una hebra continua (tramos de cilindro) que se enrosca y cae sobre la pieza
+    const MAXE = 1400;
+    const beadGeo = new THREE.CylinderGeometry(0.035, 0.035, 1, 5, 1, true);
+    beadGeo.translate(0, 0.5, 0); // cada tramo va desde el punto anterior hacia el nuevo
+    const beads = new THREE.InstancedMesh(beadGeo,
+      new THREE.MeshStandardMaterial({ color: colors.filamento, roughness: 0.5, emissive: colors.filamento, emissiveIntensity: 0.2 }), MAXE);
+    beads.frustumCulled = false;
+    group.add(strings, tail, beads);
+    const err = { key: null, cycle: -1, n: 0, stopY: null, t0: 0, last: 0, anchor: null };
+    function newCycle(n) {
+      err.cycle = n;
+      const keys = Object.keys(ERRORES);
+      err.key = forced || (!reduce && n > 0 && Math.random() < (T.errores || 0.25) ? keys[Math.floor(Math.random() * keys.length)] : null);
+      err.n = 0;
+      err.stopY = null;
+      err.anchor = null;
+      strings.geometry.setDrawRange(0, 0);
+      tail.visible = false;
+      beads.count = 0;
+      err.prev = null;
+      pivot.rotation.z = 0;
+      pivot.position.x = max.x;
+    }
+    const dummy = new THREE.Object3D(), UP = new THREE.Vector3(0, 1, 0);
+    // aplica el error de esta vuelta; devuelve la altura hasta donde llega la pieza
+    function runError(ms, p, y, phase, tipX, tipZ) {
+      const E = err.key && ERRORES[err.key];
+      if (!E || phase === "heat" || p < E.at) return y;
+      const now = ms / 1000;
+      if (err.stopY == null) { err.stopY = y; err.t0 = now; }
+      const te = now - err.t0;
+      if (err.key === "hilos") {
+        // cada ~0,1 s queda un hilo nuevo entre dos puntos de la capa actual
+        if (phase === "print" && now - err.last > 0.12 && err.n < MAXH) {
+          err.last = now;
+          const a = [min.x + Math.random() * w, y, min.z + Math.random() * d];
+          const b = [a[0] + (Math.random() - 0.5) * 3, y - Math.random() * 0.4, min.z + Math.random() * d];
+          const pos = strings.geometry.attributes.position;
+          for (let k = 0; k < SEG; k++) {
+            for (const [j, f] of [[0, k / SEG], [1, (k + 1) / SEG]]) {
+              const sag = Math.sin(f * Math.PI) * 0.35;
+              pos.setXYZ((err.n * SEG + k) * 2 + j, a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f - sag, a[2] + (b[2] - a[2]) * f);
+            }
+          }
+          pos.needsUpdate = true;
+          err.n++;
+          strings.geometry.setDrawRange(0, err.n * SEG * 2);
+          err.anchor = b;
+        }
+        tail.visible = phase === "print" && !!err.anchor;
+        if (tail.visible) {
+          const tp = tail.geometry.attributes.position;
+          tp.setXYZ(0, tipX, y + 0.03, tipZ);
+          tp.setXYZ(1, ...err.anchor);
+          tp.needsUpdate = true;
+        }
+        return y;
+      }
+      if (err.key === "despegue") {
+        // la esquina izquierda se levanta y la boquilla arrastra la pieza
+        pivot.rotation.z = -Math.min(0.12, te * 0.25);
+        pivot.position.x = max.x + Math.min(1, te * 0.5);
+        return err.stopY;
+      }
+      // espagueti: la pieza deja de crecer y el filamento sale al aire y cae encima
+      if (phase === "print" && err.n < MAXE) {
+        for (let k = 0; k < 3 && err.n < MAXE; k++) {
+          // rizos alrededor de la boquilla, apilándose cada vez más alto
+          const a = now * 11 + k * 0.7, pile = Math.min(1.1, te * 0.12);
+          const pt = new THREE.Vector3(tipX + Math.cos(a) * 0.28 + (Math.random() - 0.5) * 0.1,
+            err.stopY + 0.05 + pile * (0.5 + 0.5 * Math.sin(a * 0.37)), tipZ + Math.sin(a * 1.3) * 0.28);
+          // del punto anterior al nuevo en tramos cortos y torcidos: queda una hebra enredada
+          const steps = err.prev ? Math.min(12, Math.ceil(pt.distanceTo(err.prev) / 0.25)) : 0;
+          for (let j = 1; j <= steps && err.n < MAXE; j++) {
+            const q = err.prev.clone().lerp(pt, 1 / (steps - j + 1));
+            if (j < steps) q.add(new THREE.Vector3((Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.12, (Math.random() - 0.5) * 0.25));
+            const dir = q.clone().sub(err.prev), len = dir.length();
+            dummy.position.copy(err.prev);
+            dummy.quaternion.setFromUnitVectors(UP, dir.normalize());
+            dummy.scale.set(1, len, 1);
+            dummy.updateMatrix();
+            beads.setMatrixAt(err.n++, dummy.matrix);
+            err.prev = q;
+          }
+          err.prev = pt;
+        }
+        beads.count = err.n;
+        beads.instanceMatrix.needsUpdate = true;
+      }
+      return err.stopY;
+    }
     let lastHud = 0, lastPhase = "";
     renderSupBtn();
 
-    function updateHud(t, phase, p, heat) {
+    function updateHud(t, phase, p, heat, shown) {
       const jitter = Math.sin(t * 3.7) * 0.4 + Math.sin(t * 9.1) * 0.3;
       let noz, bed, speed = 0, fan = 0;
       if (phase === "heat") {
@@ -498,46 +951,100 @@
       hud.eta.textContent = eta;
       // sin soportes, al llegar a los voladizos la impresión falla (como en la vida real)
       if (phase === "print" && !withSupports && localPlane.constant > overhangY) phase = "warn";
+      if (shown) phase = shown;
       hud.bar.style.width = (p * 100).toFixed(1) + "%";
       hud.progress.textContent = Math.round(p * 100) + "%";
-      if (phase !== lastPhase) {
-        lastPhase = phase;
-        const label = { heat: "CALENTANDO", print: "IMPRIMIENDO", done: "TERMINADO", warn: "⚠ VOLADIZO SIN SOPORTE" }[phase];
-        const cls = { heat: "", print: "printing", done: "done", warn: "warn" }[phase];
+      if (phase + err.key !== lastPhase) {
+        lastPhase = phase + err.key;
+        const E = ERRORES[err.key] || {};
+        const label = { heat: "CALENTANDO", print: T.imprimiendo || "IMPRIMIENDO", done: "TERMINADO", warn: "⚠ VOLADIZO SIN SOPORTE", err: E.label, fail: E.fin }[phase];
+        const cls = { heat: "", print: "printing", done: "done", warn: "warn", err: "warn", fail: "warn" }[phase];
         hud.state.textContent = label;
         hud.state.className = "hud-state " + cls;
         hud.dot.className = "hud-dot " + cls;
+        foot.textContent = shown ? E.tip : footText();
       }
     }
 
     function tick(ms) {
       const t = reduce ? HEAT + PRINT + 0.1 : (ms / 1000) % CYCLE;
+      const n = reduce ? 0 : Math.floor(ms / 1000 / CYCLE);
+      if (n !== err.cycle) newCycle(n);
       const phase = t < HEAT ? "heat" : t < HEAT + PRINT ? "print" : "done";
       const p = phase === "heat" ? 0 : Math.min(1, (t - HEAT) / PRINT);
       const y = min.y + (max.y - min.y) * p;
+      const tipX = (min.x + max.x) / 2 + Math.sin(ms / 1000 * 7) * (w / 2), tipZ = (min.z + max.z) / 2 + Math.cos(ms / 1000 * 3.1) * (d / 2);
 
       group.rotation.y = Math.sin(ms / 1000 * 0.45) * 0.55 - 0.25 + mx * 0.5;
       group.rotation.x = 0.12 + my * 0.15;
+      // con error, la pieza puede dejar de crecer (yp) aunque la boquilla siga subiendo
+      const yp = runError(ms, p, y, phase, tipX, tipZ);
       group.updateMatrixWorld();
-      localPlane.constant = y + 0.001;
-      plane.copy(localPlane).applyMatrix4(group.matrixWorld);
+      localPlane.constant = yp + 0.001;
+      plane.copy(localPlane).applyMatrix4(part.matrixWorld);
+      decoPlane.copy(localPlane).applyMatrix4(group.matrixWorld);
+      for (const pk of printed) {
+        const cap = pk.userData.cap;
+        cap.position.y = yp - min.y;
+        cap.material.uniforms.uY.value = yp;
+        cap.visible = phase === "print";
+      }
 
       for (const cap of caps) {
-        cap.position.y = y;
-        cap.material.uniforms.uY.value = y;
+        cap.position.y = yp;
+        cap.material.uniforms.uY.value = yp;
         cap.visible = phase === "print";
       }
       glow.position.y = y + 0.01;
       glow.visible = phase === "print";
-      nozzle.position.set((min.x + max.x) / 2 + Math.sin(ms / 1000 * 7) * (w / 2), y + 0.3, (min.z + max.z) / 2 + Math.cos(ms / 1000 * 3.1) * (d / 2));
+      nozzle.position.set(tipX, y + 0.3, tipZ);
       if (phase === "heat") nozzle.position.set(max.x + 0.6, min.y + 1.2, 0);
       nozzle.visible = phase !== "done";
       // al terminar se retiran los soportes
       supportMat.opacity = phase === "done" ? Math.max(0, 1 - (t - HEAT - PRINT) / 1.2) : 1;
 
+      // el saludo flota suave; en celular va debajo de la cama (arriba lo tapa el menú)
+      if (banner) banner.position.y = (camera.aspect > 1.1 ? max.y + 1.9 : min.y - 1.4) + Math.sin(ms / 1000 * 1.5) * 0.12;
+
+      // nieve, cristales, luces y fuegos artificiales
+      const dt = Math.min(0.05, (ms - (tick.last || ms)) / 1000);
+      tick.last = ms;
+      if (fw) fireworks(ms / 1000, dt);
+      if (snow) {
+        const pos = snow.geometry.attributes.position, sp = snow.userData.speed;
+        for (let i = 0; i < pos.count; i++) {
+          let y = pos.getY(i) - sp[i] * dt;
+          if (y < -7) y = 9;
+          pos.setY(i, y);
+          pos.setX(i, pos.getX(i) + Math.sin(ms / 1000 * 0.8 + i) * 0.004);
+        }
+        pos.needsUpdate = true;
+      }
+      for (const c of crystals) {
+        const u = c.userData;
+        c.position.set(group.position.x + u.x + Math.sin(ms / 1000 * 0.2 + u.y) * 0.5, group.position.y + u.y + 1 + Math.sin(ms / 1000 * 0.3 + u.x) * 0.4, -5);
+        c.scale.setScalar(u.s);
+        c.material.rotation = (ms / 1000) * u.spin;
+      }
+      for (const b of bulbs) {
+        // cada foco prende y apaga a su ritmo; en grupos para que la guirnalda "corra"
+        const on = 0.25 + 0.75 * (Math.sin(ms / 1000 * 3 - b.userData.k * 0.45) > -0.2 ? 1 : 0);
+        b.material.color.copy(b.userData.c).multiplyScalar(on);
+        b.userData.halo.material.opacity = on * 0.9;
+      }
+
+      // murciélagos cruzando por detrás del logo, aleteando
+      for (const b of bats) {
+        const u = (ms / 1000 * b.userData.speed + b.userData.off) % 1;
+        b.position.set(group.position.x + (u - 0.5) * 22, group.position.y + b.userData.alt + Math.sin(u * 25) * 0.4, -4);
+        const sz = b.userData.size;
+        b.scale.set(sz, sz * (0.35 + 0.65 * Math.abs(Math.sin(ms / 1000 * 9 + b.userData.off * 7))), sz);
+      }
+
       if (ms - lastHud > 90) {
         lastHud = ms;
-        updateHud(t, phase, p, Math.min(1, t / HEAT));
+        const E = err.key && err.stopY != null ? (phase === "done" ? "fail" : "err") : null;
+        updateHud(t, phase, p, Math.min(1, t / HEAT), E);
       }
       renderer.render(scene, camera);
       requestAnimationFrame(tick);
@@ -1796,6 +2303,17 @@
       state.caja = { ...caja, idx: E.tamanos.indexOf(caja) };
       addExtra("embalaje", `Embalaje: ${caja.nombre.charAt(0).toLowerCase() + caja.nombre.slice(1)} + protección${q > 1 ? ` (${q} unidades)` : ""}`,
         caja.min * q, caja.precio * q, E.margen);
+
+      // presentación opcional: para regalo (insumos) o exhibidor impreso en PLA (como una impresión más)
+      const pr = E.presentacion && E.presentacion[state.presentacion], i = state.caja.idx, uds = q > 1 ? ` (${q} unidades)` : "";
+      if (pr && !pr.impresa) addExtra("presentacion", `Presentación para regalo${uds}`, pr.min * q, pr.costo[i] * q, E.margen);
+      if (pr && pr.impresa) {
+        const g = pr.gramos[i], horas = g / E.gramos_hora;
+        const imp = (g / 1000) * priceKg(state.mat) + horas * (machineHour() + (C.energia.potencia_w / 1000) * C.energia.precio_kwh);
+        // el diseño se hace una vez; cada unidad extra solo se prepara e imprime
+        addExtra("exhibidor", `${pr.nombre} (~${g} g · ${fmtTime(horas)})${state.presentacion === "caja" ? " · desde" : ""}${uds}`,
+          pr.min + 5 * (q - 1), imp * q);
+      }
     }
 
     // envío al costo (sin margen): domicilio en Bogotá por tamaño de caja o transportadora por peso
@@ -1996,7 +2514,7 @@
           ${p.off ? "" : piecesBlock(i, p)}`).join("")
         : piecesBlock(0, r.parts[0]).replace('<div class="pieces">', `<div class="pieces"><h5>Color de cada pieza${colorInfo(r.parts[0])}</h5>`);
       const extras = r.extras.map((e) => `
-        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡", herrajes: "🔩", embalaje: "📦", envio: "🚚" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
+        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡", herrajes: "🔩", embalaje: "📦", presentacion: "🎁", exhibidor: "🏛", envio: "🚚" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
       const minimo = r.minimo > 0 ? `
         <div class="plate extra"><i>$</i><div><span>Ajuste a pedido mínimo</span></div><b>${money(r.minimo)}</b></div>` : "";
       const offN = r.allParts.length - r.parts.length;
@@ -2019,6 +2537,8 @@
       const tipo = C.led.tipos.find((t) => t.id === state.led.tipo);
       lines.push(`• Letrero con LED ${tipo.nombre.toLowerCase()}: ${dec(ledMeters())} m de tira, fuente e instalación`);
     }
+    const Pr = C.embalaje.presentacion;
+    if (Pr[state.presentacion]) lines.push(`• Presentación: ${Pr[state.presentacion].nombre.toLowerCase()}`);
     const sh = shippingCost(r.grams, q);
     lines.push(`• Entrega: ${sh ? sh.label : "recojo en el taller"}${sh && state.envio.modo === "nacional" ? ` · + ${sh.dias} días de transporte` : ""}`);
     const hwMsg = hardwareList();
@@ -2157,6 +2677,17 @@
     return { valor, kg, dias: z.dias, label: `Envío nacional · ${z.nombre.toLowerCase()} · ${kg} kg cobrables (estimado)` };
   }
 
+  /* ---------------- presentación ---------------- */
+  function renderPresentation() {
+    const Pr = C.embalaje.presentacion;
+    const ops = { estandar: "Estándar", regalo: "🎁 Para regalo", base: "🏛 Base exhibidora", caja: "⭐ Caja exhibidora" };
+    $("#pres-chips").replaceChildren(...Object.entries(ops).map(([k, t]) =>
+      chip(t, k === state.presentacion, () => { state.presentacion = k; renderPresentation(); update(); })));
+    $("#pres-hint").textContent = state.presentacion === "estandar"
+      ? "Caja con protección (plástico burbuja o papel). Ya está incluida en el precio."
+      : Pr[state.presentacion].desc;
+  }
+
   function renderShipping() {
     const S = C.envio;
     const modos = { taller: "Recojo en el taller", bogota: "Domicilio en Bogotá", nacional: "Envío nacional" };
@@ -2219,6 +2750,7 @@
     renderLed();
     renderHardware();
     renderShipping();
+    renderPresentation();
     $("#hw-on").onchange = (e) => {
       state.herrajes.on = e.target.checked;
       // al activarlo sin cantidades, se sugieren 4 insertos (lo más común)
@@ -2435,7 +2967,8 @@
   function deliveryDays(horas) {
     const P = C.produccion;
     const total = (queue.horas + horas) * (1 + P.margen_fallas);
-    return Math.max(1, Math.ceil(total / P.horas_por_dia)) + P.dias_extra;
+    const caja = (C.embalaje.presentacion[state.presentacion] || {}).dias || 0; // diseño de la caja exhibidora
+    return Math.max(1, Math.ceil(total / P.horas_por_dia)) + P.dias_extra + caja;
   }
   const addWorkdays = (n) => {
     const d = new Date();
@@ -2566,6 +3099,8 @@
     if (state.acabado === "pintado") material += " · pintado a mano";
     if (state.led.on) material += " · LED";
     if (hardwareList().length) material += " · tornillería";
+    const pres = C.embalaje.presentacion[state.presentacion];
+    if (pres) material += ` · ${pres.nombre.toLowerCase()}`;
     if (q > 1) material += ` · ${q} unidades`;
     return {
       id, material,
@@ -2748,7 +3283,7 @@
     const W = 1080, pad = 36, head = 210, foot = 64, gap = 16, info = 56;
     const tile = Math.floor((W - pad * 2 - (cols - 1) * gap) / cols);
     // servicios adicionales (LED, pintura, colores, ensamble, mínimo) para que la ficha cuadre con el total
-    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐", herrajes: "🔩", embalaje: "📦", envio: "🚚" };
+    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐", herrajes: "🔩", embalaje: "📦", presentacion: "🎁", exhibidor: "🏛", envio: "🚚" };
     const extraRows = r.extras.map((e) => [icons[e.key] || "+", e.label, e.precio]);
     if (r.minimo > 0) extraRows.push(["$", "Ajuste a pedido mínimo", r.minimo]);
     const rowH = 46, extrasH = extraRows.length ? 56 + extraRows.length * rowH : 0;
@@ -3210,10 +3745,37 @@
     paint();
   }
 
+  // Menú del celular: el botón ☰ abre los enlaces; se cierra al elegir uno, tocar fuera o con Esc.
+  // En pantallas angostas el tema, la moneda y "Sube tu archivo" se pasan adentro del menú.
+  function initMenu() {
+    const btn = $("#menu-btn"), links = $("#nav-links"), right = document.querySelector(".nav-right");
+    const tools = document.createElement("div");
+    tools.className = "menu-tools";
+    const items = [$("#theme-btn"), right.querySelector(".currency"), right.querySelector(".btn")];
+    const mq = matchMedia("(max-width: 900px)");
+    const place = () => {
+      if (mq.matches) { tools.append(...items); links.append(tools); }
+      else { right.prepend(...items); tools.remove(); }
+    };
+    mq.addEventListener("change", place);
+    place();
+    const set = (open) => {
+      links.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", open);
+      btn.setAttribute("aria-label", open ? "Cerrar menú" : "Abrir menú");
+      btn.textContent = open ? "✕" : "☰";
+    };
+    btn.onclick = (e) => { e.stopPropagation(); set(!links.classList.contains("open")); };
+    links.addEventListener("click", (e) => { if (e.target.closest("a")) set(false); });
+    document.addEventListener("click", (e) => { if (!links.contains(e.target)) set(false); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") set(false); });
+  }
+
   /* ---------------- arranque ---------------- */
   bindTexts();
   initCurrency();
   initTheme();
+  initMenu();
   initHero();
   initViewer();
   initForm();
