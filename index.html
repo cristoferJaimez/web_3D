@@ -18,7 +18,7 @@
       document.documentElement.setAttribute("data-theme", t);
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=115">
+  <link rel="stylesheet" href="styles.css?v=122">
 </head>
 <body>
   <div class="grain" aria-hidden="true"></div>
@@ -28,6 +28,7 @@
     <nav class="nav-links" id="nav-links">
       <a href="#cotizador">Cotizar</a>
       <a href="#catalogo">Catálogo</a>
+      <a href="#disenos">Diseños</a>
       <a href="#materiales">Materiales</a>
       <a href="#taller">Taller</a>
       <a href="#contacto">Contacto</a>
@@ -164,6 +165,15 @@
         </div>
 
         <div class="field">
+          <label class="toggle"><input type="checkbox" id="perso-on"><span></span>✍ Personalizar con un nombre o mensaje</label>
+          <div class="led-box perso-box" id="perso-box" hidden>
+            <input id="perso-text" maxlength="40" autocomplete="off" placeholder="Ej.: Ana · Feliz cumpleaños · 25/12/2026">
+            <label class="check"><input type="checkbox" id="perso-color"> En otro color (por ejemplo letras blancas sobre la pieza)</label>
+            <p class="hint" id="perso-hint"></p>
+          </div>
+        </div>
+
+        <div class="field">
           <label>Presentación</label>
           <div class="chips" id="pres-chips"></div>
           <p class="hint" id="pres-hint"></p>
@@ -199,8 +209,10 @@
         </div>
 
         <div class="field">
-          <label class="toggle"><input type="checkbox" id="supports"><span></span>Soportes</label>
+          <label class="toggle"><input type="checkbox" id="supports"><span></span>Soportes tipo árbol</label>
           <p class="hint" id="sup-g"></p>
+          <label class="toggle brim-toggle"><input type="checkbox" id="brim" checked><span></span>Borde de adherencia (5 mm)</label>
+          <p class="hint" id="brim-hint">Una capa fina alrededor de la base para que la pieza no se despegue de la cama. Se retira al terminar.</p>
         </div>
 
         <div class="field row">
@@ -251,6 +263,16 @@
     </div>
     <div class="chips filters" id="cat-filters"></div>
     <div class="grid" id="catalog"></div>
+  </section>
+
+  <!-- MIS DISEÑOS -->
+  <section id="disenos" class="section">
+    <div class="section-head">
+      <p class="eyebrow mono">// diseños HHH3D</p>
+      <h2>Diseños propios, listos para imprimir</h2>
+      <p class="lead small">Gíralos y acércalos en 3D. Elige el que te guste y lo imprimimos en el material y los colores que quieras.</p>
+    </div>
+    <div class="grid designs" id="designs"></div>
   </section>
 
   <!-- MATERIALES -->
@@ -347,8 +369,8 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/STLLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
-  <script src="config.js?v=115"></script>
+  <script src="config.js?v=122"></script>
   <script src="parser3mf.js?v=3"></script>
-  <script src="app.js?v=115"></script>
+  <script src="app.js?v=122"></script>
 </body>
 </html>

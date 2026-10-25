@@ -54,12 +54,30 @@ window.CONFIG = {
   },
 
   // Soportes calculados con la forma de la pieza (valores por defecto de Bambu Studio)
+  // Como imprimes en Bambu Studio: soporte árbol (orgánico) a 30° y borde de adherencia automático de 5 mm.
+  // densidad y contacto: punto medio entre el cálculo anterior y Bambu Studio (motor radial: ~2,6 g; Bambu 3,37 g).
   soportes: {
+    tipo: "arbol",            // "arbol" (orgánico) o "normal": cambia cómo se dibuja en el visor
     angulo: 30,               // caras con menos de 30° de inclinación respecto a la cama llevan soporte
-    densidad: 0.17,           // relleno del soporte (líneas cada ~2,5 mm)
-    contacto_mm: 0.35,        // capas densas que tocan la pieza (mm de material por mm² sostenido)
+    densidad: 0.245,          // material del soporte por cada mm³ de aire bajo los voladizos
+    contacto_mm: 0.5,         // puntas que tocan la pieza (mm de material por mm² sostenido)
     min_retirar: 3,           // por placa con soportes: retirarlos y limpiar marcas…
     min_por_g: 0.3,           // …más 0,3 min por gramo de soporte
+  },
+  // Personalizar con un nombre o mensaje: se cobra tu tiempo de diseño (con el margen del taller).
+  // Hasta corto_max letras: texto corto; más largo: mensaje largo o diseño especial ("desde", se confirma).
+  personalizacion: {
+    corto_max: 15,
+    max: 40,
+    min_corto: 15,            // minutos de diseño: nombre o texto corto
+    min_largo: 30,            // minutos de diseño: mensaje largo, fecha o logo
+    min_color: 5,             // minutos extra si el texto va en otro color
+    cambios_color: 10,        // cambios de color estimados del AMS para las letras
+  },
+
+  borde: {
+    ancho_mm: 5,              // borde de adherencia (brim) alrededor de lo que toca la cama, una capa
+    min_retirar: 1,           // por placa: quitar el borde y repasar
   },
 
   costos: {
@@ -319,7 +337,52 @@ window.CONFIG = {
      (menos de 20 MB). Si "media" está vacío se generan vistas 3D con la "forma":
      knot | torus | ico | box | cone | cylinder | sphere | gear
      ejemplo: true = se muestra con la etiqueta "Ejemplo". Quítalo cuando sea un trabajo real. */
+  /* Mis diseños: modelos propios que la gente gira en 3D y pide impresos.
+     vista: versión liviana para el visor (no sirve para imprimir con calidad; el original no se publica).
+     medidas: las exactas de cada pieza del original (mm³ y mm²) para que el precio sea el real.
+     colores: color sugerido por pieza (el primero que esté disponible); las demás van en el primer color.
+     valor_diseno: tu pago por el diseño, se cobra por cada unidad impresa (es ganancia completa). */
+  mostrar_disenos: false,     // false = la sección "Diseños" no aparece en la página (todavía no se publica)
+  disenos: [
+    {
+      nombre: "Motor radial portalápices", material: "PLA", vista: "disenos/motor_radial_portalapices.3mf", valor_diseno: 25000,
+      desc: "Motor radial estilo aviación que funciona como portalápices: hélice, leva y pistones que se mueven.",
+      colores: { helice: ["Amarillo", "Naranja"] },
+      medidas: [
+        {"nombre":  "mitad_delantera", "vol":  30068, "area":  23408, "supVol":  2163, "supArea":  621},
+        {"nombre":  "mitad_trasera", "vol":  31595, "area":  24126, "supVol":  2386, "supArea":  378},
+        {"nombre":  "helice", "vol":  5006, "area":  4741, "supVol":  496, "supArea":  41},
+        {"nombre":  "base", "vol":  54369, "area":  21743, "supVol":  53, "supArea":  87},
+        {"nombre":  "eje", "vol":  2149, "area":  1358, "supVol":  0, "supArea":  0},
+        {"nombre":  "leva", "vol":  1533, "area":  1156, "supVol":  0, "supArea":  0},
+        {"nombre":  "piston_1", "vol":  989, "area":  826, "supVol":  190, "supArea":  94},
+        {"nombre":  "piston_2", "vol":  989, "area":  826, "supVol":  190, "supArea":  94},
+        {"nombre":  "piston_3", "vol":  989, "area":  826, "supVol":  190, "supArea":  94}
+      ],
+    },
+    {
+      nombre: "Motor V8 portalápices", material: "PLA", vista: "disenos/motor_v8_lapices_moviles.3mf", valor_diseno: 20000,
+      desc: "Motor V8 de escritorio: los lápices hacen de pistones y suben y bajan al girar la manivela.",
+      colores: {},
+      medidas: [
+        {"nombre":  "cuerpo", "vol":  97686, "area":  36531, "supVol":  863, "supArea":  268},
+        {"nombre":  "tapa_frontal", "vol":  3422, "area":  3493, "supVol":  0, "supArea":  0},
+        {"nombre":  "ciguenal", "vol":  1181, "area":  1191, "supVol":  0, "supArea":  0},
+        {"nombre":  "biela_1", "vol":  269, "area":  418, "supVol":  0, "supArea":  0},
+        {"nombre":  "biela_2", "vol":  269, "area":  418, "supVol":  0, "supArea":  0},
+        {"nombre":  "biela_3", "vol":  269, "area":  418, "supVol":  0, "supArea":  0},
+        {"nombre":  "biela_4", "vol":  269, "area":  418, "supVol":  0, "supArea":  0},
+        {"nombre":  "piston_1", "vol":  340, "area":  785, "supVol":  178, "supArea":  85},
+        {"nombre":  "piston_2", "vol":  340, "area":  785, "supVol":  178, "supArea":  85},
+        {"nombre":  "piston_3", "vol":  340, "area":  785, "supVol":  178, "supArea":  85},
+        {"nombre":  "piston_4", "vol":  340, "area":  785, "supVol":  178, "supArea":  85},
+        {"nombre":  "manivela", "vol":  395, "area":  490, "supVol":  0, "supArea":  0}
+      ],
+    },
+  ],
+
   catalogo: [
+    { nombre: "Pato Lucas Batman en vitrina", categoria: "Figuras", material: "PLA", color: "#1a1a1a", desde: 99000, forma: "box", media: ["trabajos/pato-lucas-batman-vitrina-1.jpg", "trabajos/pato-lucas-batman-vitrina-2.jpg", "trabajos/pato-lucas-batman-vitrina-3.jpg", "trabajos/pato-lucas-batman-vitrina-4.jpg", "trabajos/pato-lucas-batman-vitrina-5.jpg"] },
     { nombre: "Lámpara Flor de la Vida", categoria: "Hogar", material: "PLA", color: "#1a1a1a", desde: 65000, forma: "cylinder", media: ["trabajos/lampara-flor-de-la-vida-1.jpg", "trabajos/lampara-flor-de-la-vida-2.jpg", "trabajos/lampara-flor-de-la-vida-3.jpg", "trabajos/lampara-flor-de-la-vida-4.jpg", "trabajos/lampara-flor-de-la-vida-5.jpg", "trabajos/lampara-flor-de-la-vida-6.jpg"] },
     { nombre: "Maceta geométrica", categoria: "Hogar", material: "PLA", color: "#b6f23a", desde: 28000, forma: "ico", media: [], ejemplo: true },
     { nombre: "Engranaje de repuesto", categoria: "Repuestos", material: "PETG", color: "#8a8d93", desde: 18000, forma: "gear", media: [], ejemplo: true },

@@ -117,7 +117,7 @@ function registrarPedido(d) {
   lock.waitLock(20000);
   try {
     const sh = libro().getSheetByName("Pedidos");
-    sh.appendRow([t(d.id, 40), fecha, Utilities.formatDate(fecha, "America/Bogota", "yyyy-MM"),
+    sh.appendRow([t(d.id, 40), fecha, "'" + Utilities.formatDate(fecha, "America/Bogota", "yyyy-MM"),
       t(d.cliente, 100), t(d.celular, 30), t(d.archivos, 300), t(d.url, 300), t(d.material, 200),
       num(d.placas), num(d.peso), num(d.horas), num(d.costo), num(d.total), "", "Cotización", 0, "",
       d.entrega ? new Date(d.entrega) : "",
@@ -196,7 +196,7 @@ function crearResumen(ss) {
   rs.getRange("A1:I1").setValues([["Mes", "Pedidos", "Ventas", "Costo", "Utilidad", "Cobrado", "Por cobrar", "Cotizaciones", "% cierre"]])
     .setFontWeight("bold").setBackground("#0f1116").setFontColor("#c6ff3d");
   const venta = NO_VENTA.map((e) => `Pedidos!$O$2:$O,"<>${e}"`).join(",");
-  rs.getRange("A2").setFormula(`=IFERROR(SORT(UNIQUE(FILTER(Pedidos!C2:C,Pedidos!C2:C<>"")),1,FALSE),"")`);
+  rs.getRange("A2").setFormula(`=IFERROR(SORT(UNIQUE(FILTER(TEXT(Pedidos!C2:C,"yyyy-mm"),Pedidos!C2:C<>"")),1,FALSE),"")`);
   rs.getRange("B2").setFormula(`=ARRAYFORMULA(IF(A2:A="",,COUNTIFS(Pedidos!$C$2:$C,A2:A,${venta})))`);
   [["C", "M"], ["D", "L"], ["E", "N"], ["F", "P"], ["G", "Q"]].forEach(([dst, src]) =>
     rs.getRange(`${dst}2`).setFormula(`=ARRAYFORMULA(IF(A2:A="",,SUMIFS(Pedidos!$${src}$2:$${src},Pedidos!$C$2:$C,A2:A,${venta})))`));
@@ -232,7 +232,7 @@ function crearResumen(ss) {
 function crearGanancias(ss) {
   const g = ss.insertSheet("Ganancias");
   const venta = `Pedidos!O2:O<>"Cotización",Pedidos!O2:O<>"No concretado"`;
-  const mes = `Pedidos!C2:C=TEXT(TODAY(),"yyyy-mm")`;
+  const mes = `TEXT(Pedidos!C2:C,"yyyy-mm")=TEXT(TODAY(),"yyyy-mm")`; // también si el mes quedó como fecha
   const sumaMes = (col) => `=SUM(IFERROR(FILTER(${col},Pedidos!A2:A<>"",${mes},${venta}),0))`;
   g.getRange("A1").setValue("💰 ¿Cuánto estoy ganando?").setFontSize(16).setFontWeight("bold");
   g.getRange("A2").setValue("Solo cuenta pedidos confirmados (de «En proceso» en adelante). Las cotizaciones y los no concretados no suman.")

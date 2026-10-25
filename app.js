@@ -35,6 +35,8 @@
     led: { on: false, tipo: "blanco", metros: null }, // metros null = sugerido por la pieza
     herrajes: { on: false, qty: {} }, // id → unidades por pieza
     envio: { modo: "taller", zona: "principal" }, // taller | bogota | nacional
+    brim: true, // borde de adherencia
+    perso: { on: false, texto: "", color: false }, // personalizar con nombre o mensaje
     presentacion: "estandar", // estandar | regalo | base | caja
     fit: "ajustar", // ajustar a la impresora | dividir en placas
     currency: "COP",
@@ -1215,8 +1217,16 @@
       area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2;
     }
     const sup = supportEstimate(p, start * 9, (start + count) * 9, vol < 0 ? -1 : 1, minX, minY, minZ, maxX - minX, maxZ - minZ);
+    // base: rectángulo [x0, z0, x1, z1] de las caras apoyadas en la cama (ahí va el borde de adherencia)
+    let base = null;
+    for (let i = start * 9, end = (start + count) * 9; i < end; i += 9) {
+      if (Math.max(p[i + 1], p[i + 4], p[i + 7]) - minY > 0.3) continue;
+      const xs = [p[i], p[i + 3], p[i + 6]], zs = [p[i + 2], p[i + 5], p[i + 8]];
+      if (!base) base = [Infinity, Infinity, -Infinity, -Infinity];
+      base = [Math.min(base[0], ...xs), Math.min(base[1], ...zs), Math.max(base[2], ...xs), Math.max(base[3], ...zs)];
+    }
     // medidas en mm: ancho (X), fondo (Z) y alto (Y)
-    return { volume: Math.abs(vol), area, minY, maxY, minX, minZ, dims: [maxX - minX, maxZ - minZ, maxY - minY], ...sup };
+    return { volume: Math.abs(vol), area, minY, maxY, minX, minZ, dims: [maxX - minX, maxZ - minZ, maxY - minY], ...sup, base };
   }
 
   // Soportes según la forma: como el laminador, toma las caras que miran hacia abajo con
@@ -1541,6 +1551,9 @@
     state.pieceColors = {};
     state.offPlates = new Set();
     state.led.metros = null;
+    const dz = state.designPend;
+    state.designPend = null;
+    if (dz) applyDesign(model, dz);
     const sv = model.multi ? model.plates.reduce((a, pl) => a + pl.supVol * C.soportes.densidad + pl.supArea * C.soportes.contacto_mm, 0)
       : model.supVol * C.soportes.densidad + model.supArea * C.soportes.contacto_mm;
     state.supports = sv > 800; // más de ~1 g de soporte
@@ -1809,6 +1822,10 @@
   const supportGeos = new WeakMap();
   function supportMesh(cols, mat) {
     let geo = supportGeos.get(cols);
+    if (!geo && C.soportes.tipo === "arbol") {
+      geo = treeGeometry(cols);
+      supportGeos.set(cols, geo);
+    }
     if (!geo) {
       const n = cols.length / 4, h = 1; // media anchura: deja ~0,5 mm de luz entre columnas
       const pos = new Float32Array(n * 24), idx = new Uint32Array(n * 36);
@@ -1830,6 +1847,36 @@
     m.userData.shared = true; // se reutiliza al redibujar
     m.raycast = () => {}; // no estorba al pintar piezas con clic
     return m;
+  }
+
+  // Soporte árbol: en cada zona de ~12 mm un tronco sube desde abajo y se abre en ramas
+  // hasta los puntos de la pieza que hay que sostener (como el soporte orgánico de Bambu Studio)
+  function treeGeometry(cols) {
+    const n = cols.length / 4, G = 12, zonas = new Map(), parts = [];
+    const UP = new THREE.Vector3(0, 1, 0), V = (x, y, z) => new THREE.Vector3(x, y, z);
+    for (let c = 0; c < n; c++) {
+      const [x, z, y0, y1] = cols.subarray(c * 4, c * 4 + 4);
+      const k = `${Math.floor(x / G)},${Math.floor(z / G)},${Math.round(y0)}`; // misma zona y mismo piso
+      if (!zonas.has(k)) zonas.set(k, []);
+      zonas.get(k).push([x, z, y0, y1]);
+    }
+    const rama = (a, b, r0, r1) => {
+      const d = b.clone().sub(a), L = d.length();
+      if (L < 0.1) return;
+      const g = new THREE.CylinderGeometry(r1, r0, L, 6, 1, true).translate(0, L / 2, 0);
+      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, d.normalize()));
+      parts.push(g.translate(a.x, a.y, a.z));
+    };
+    for (const pts of zonas.values()) {
+      const paso = Math.ceil(pts.length / 10); // hasta ~10 ramas por árbol
+      const puntas = pts.filter((_, i) => i % paso === 0);
+      const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length, cz = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+      const piso = Math.min(...pts.map((p) => p[2])), techo = Math.min(...pts.map((p) => p[3]));
+      const nudo = V(cx, piso + (techo - piso) * 0.6, cz);
+      rama(V(cx, piso, cz), nudo, 1.6, 1.1);
+      for (const [x, z, , y1] of puntas) rama(nudo, V(x, y1 - 0.2, z), 0.9, 0.35);
+    }
+    return parts.length ? mergeGeos(parts) : new THREE.BufferGeometry();
   }
 
   // Colores del visor según el color de cada pieza
@@ -2145,14 +2192,19 @@
     const noz = nozzle(), capa = layerHeight(), lw = noz.d * 1.05;
     const S = C.soportes;
 
-    let printed = 0, filamento = 0, grams = 0, interior = 0, volumen = 0, supG = 0;
+    let printed = 0, filamento = 0, grams = 0, interior = 0, volumen = 0, supG = 0, bordeG = 0;
+    const B = C.borde;
     for (const pc of pieces) {
       pc.color = mat.colores[pc.colorIdx] || mat.colores[0];
       const shell = Math.min(pc.vol, pc.area * P.perimetros * lw);
       // soporte: rejilla rala bajo los voladizos + capas de contacto más densas
       const sop = state.supports ? pc.supVol * S.densidad + pc.supArea * S.contacto_mm : 0;
       supG += (sop / 1000) * mat.densidad;
-      const pr = shell + (pc.vol - shell) * (state.infill / 100) + sop;
+      // borde de adherencia: una capa de B.ancho_mm alrededor de la base (solo piezas que tocan la cama)
+      const b = state.brim && B && pc.base && pc.minY < 0.5 ? pc.base : null;
+      const borde = b ? (2 * (b[2] - b[0] + b[3] - b[1]) * B.ancho_mm + 4 * B.ancho_mm ** 2) * capa : 0;
+      bordeG += (borde / 1000) * mat.densidad;
+      const pr = shell + (pc.vol - shell) * (state.infill / 100) + sop + borde;
       interior += pc.vol - shell; // lo único que cambia con el relleno
       volumen += pc.vol;
       pc.grams = (pr / 1000) * mat.densidad;
@@ -2191,7 +2243,7 @@
     // mano de obra de esta placa: preparar la impresión y, si aplica, quitar soportes.
     // Sin AMS, cada color extra es otra tanda de impresión que hay que preparar.
     const tandas = M.ams ? 1 : colors.length;
-    const minutos = K.min_preparacion * tandas + (supG >= 1 ? S.min_retirar + supG * S.min_por_g : 0);
+    const minutos = K.min_preparacion * tandas + (supG >= 1 ? S.min_retirar + supG * S.min_por_g : 0) + (bordeG > 0 ? B.min_retirar : 0);
     const manoObra = (minutos / 60) * K.mano_obra_hora;
     const riesgo = (filamento + energia + maquina) * K.margen_fallos;
     const costo = filamento + energia + maquina + manoObra + riesgo;
@@ -2227,6 +2279,7 @@
         name: pc.name, colorIdx: colorOf(i, j), dims: (pc.dims || [0, 0, 0]).map((v) => v * s),
         vol: pc.volume * s ** 3, area: pc.area * s ** 2, minY: (pc.minY - p.minY) * s, maxY: (pc.maxY - p.minY) * s,
         supVol: (pc.supVol || 0) * s ** 3, supArea: (pc.supArea || 0) * s ** 2,
+        base: pc.base ? pc.base.map((v) => v * s) : null,
       }));
       return { ...p, idx: i, label: p.label || i + 1, colorIdx: plateColor(i), r: calcPart(pieces, p.h * s) };
     });
@@ -2288,6 +2341,15 @@
     }
 
     // tornillería, insertos e imanes: material + instalación
+    const pz = persoInfo();
+    if (pz) {
+      const Z = C.personalizacion, M2 = C.multicolor;
+      const purga = pz.color ? ((Z.cambios_color * M2.purga_g_por_cambio) / 1000) * priceKg(state.mat) * q : 0;
+      const maq = pz.color ? ((Z.cambios_color * M2.seg_por_cambio) / 3600) * (machineHour() + (C.energia.potencia_w / 1000) * C.energia.precio_kwh) * q : 0;
+      addExtra("perso", `Personalizado: «${pz.texto}»${pz.color ? " en otro color" : ""}${pz.largo ? " · desde" : ""}`,
+        pz.min + (pz.color ? Z.min_color : 0), purga + maq);
+    }
+
     const hw = hardwareList();
     if (hw.length) {
       const H = C.herrajes;
@@ -2318,6 +2380,12 @@
 
     // envío al costo (sin margen): domicilio en Bogotá por tamaño de caja o transportadora por peso
     const ship = shippingCost(parts.reduce((a, p) => a + p.r.grams, 0), q);
+    // diseño propio HHH3D: tu pago por el diseño en cada unidad (todo es ganancia)
+    const dis = state.model.design;
+    if (dis && dis.valor_diseno) {
+      const v = dis.valor_diseno * q;
+      extras.push({ key: "diseno", label: `Diseño HHH3D: ${dis.nombre}${q > 1 ? ` (${q} unidades)` : ""}`, minutos: 0, insumos: 0, costo: 0, margen: v, precio: roundTo(v, K.redondeo) });
+    }
     if (ship) extras.push({ key: "envio", label: ship.label, minutos: 0, insumos: ship.valor, costo: ship.valor, margen: 0, precio: roundTo(ship.valor, K.redondeo) });
 
     const sum = (f) => parts.reduce((a, p) => a + f(p), 0);
@@ -2514,7 +2582,7 @@
           ${p.off ? "" : piecesBlock(i, p)}`).join("")
         : piecesBlock(0, r.parts[0]).replace('<div class="pieces">', `<div class="pieces"><h5>Color de cada pieza${colorInfo(r.parts[0])}</h5>`);
       const extras = r.extras.map((e) => `
-        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡", herrajes: "🔩", embalaje: "📦", presentacion: "🎁", exhibidor: "🏛", envio: "🚚" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
+        <div class="plate extra ${e.key}"><i>${{ color: "◐", led: "💡", herrajes: "🔩", embalaje: "📦", presentacion: "🎁", exhibidor: "🏛", diseno: "✏", perso: "✍", envio: "🚚" }[e.key] || "+"}</i><div><span>${e.label}</span></div><b>${money(e.precio)}</b></div>`).join("");
       const minimo = r.minimo > 0 ? `
         <div class="plate extra"><i>$</i><div><span>Ajuste a pedido mínimo</span></div><b>${money(r.minimo)}</b></div>` : "";
       const offN = r.allParts.length - r.parts.length;
@@ -2530,7 +2598,7 @@
         (state.acabado === "pintado" ? ` · pintado a mano (${C.acabados.pintura[state.pintura].nombre.toLowerCase()})` : ""),
       `• Boquilla ${dec(state.nozzle)} mm · Calidad ${C.calidades[state.calidad].toLowerCase()} (${dec(layerHeight())} mm) · Relleno ${state.infill} % · Escala ${state.scale} %`,
       `• Medidas: ${$("#dims").textContent}`,
-      `• Soportes: ${state.supports ? `sí (~${fmtG(supportNeed(r.parts))} por unidad)` : "no"} · Cantidad: ${q}`,
+      `• Soportes: ${state.supports ? `sí, tipo árbol (~${fmtG(supportNeed(r.parts))} por unidad)` : "no"} · Borde de adherencia: ${state.brim ? "sí" : "no"} · Cantidad: ${q}`,
       `• Entrega estimada: ${state.eta.dias} días hábiles (${fmtDay(state.eta.fecha)})`,
     ];
     if (state.led.on) {
@@ -2541,6 +2609,8 @@
     if (Pr[state.presentacion]) lines.push(`• Presentación: ${Pr[state.presentacion].nombre.toLowerCase()}`);
     const sh = shippingCost(r.grams, q);
     lines.push(`• Entrega: ${sh ? sh.label : "recojo en el taller"}${sh && state.envio.modo === "nacional" ? ` · + ${sh.dias} días de transporte` : ""}`);
+    const pzMsg = persoInfo();
+    if (pzMsg) lines.push(`• Personalizado: «${pzMsg.texto}»${pzMsg.color ? " (en otro color)" : ""}`);
     const hwMsg = hardwareList();
     if (hwMsg.length) lines.push(`• Tornillería: ${hwMsg.map((it) => `${it.n} × ${it.nombre.charAt(0).toLowerCase() + it.nombre.slice(1)}`).join(", ")}${q > 1 ? " (por unidad)" : ""}`);
     if (split) {
@@ -2685,6 +2755,26 @@
     const kg = Math.max(1, Math.ceil(Math.max(real, vol)));
     const valor = z.base_kg + (kg - 1) * z.kg_extra;
     return { valor, kg, dias: z.dias, label: `Envío nacional · ${z.nombre.toLowerCase()} · ${kg} kg cobrables (estimado)` };
+  }
+
+  /* ---------------- personalizar con nombre o mensaje ---------------- */
+  // null si no aplica; si no, el texto y el tipo (corto o largo) con sus minutos de diseño
+  function persoInfo() {
+    const Z = C.personalizacion, p = state.perso;
+    if (!Z || !p.on) return null;
+    const texto = p.texto.trim().replace(/[«»]/g, "").slice(0, Z.max);
+    if (!texto) return null;
+    const largo = texto.length > Z.corto_max;
+    return { texto, largo, color: p.color, min: largo ? Z.min_largo : Z.min_corto };
+  }
+
+  function renderPerso() {
+    const Z = C.personalizacion, p = state.perso;
+    $("#perso-box").hidden = !p.on;
+    const n = p.texto.trim().length;
+    $("#perso-hint").textContent = !n ? `Escribe el nombre o mensaje (hasta ${Z.max} caracteres).`
+      : n > Z.corto_max ? `Mensaje largo (${n} caracteres): el valor es un desde y te confirmamos el diseño por WhatsApp.`
+        : `Nombre o texto corto (${n} de ${Z.corto_max} caracteres).`;
   }
 
   /* ---------------- presentación ---------------- */
@@ -2837,6 +2927,11 @@
     $("#infill").oninput = (e) => { state.infill = +e.target.value; $("#infill-out").textContent = state.infill + "%"; update(); };
     $("#scale").oninput = (e) => setScale(+e.target.value);
     $("#supports").onchange = (e) => { state.supports = e.target.checked; update(); };
+    $("#brim").onchange = (e) => { state.brim = e.target.checked; update(); };
+    $("#perso-on").onchange = (e) => { state.perso.on = e.target.checked; renderPerso(); update(); };
+    $("#perso-text").oninput = (e) => { state.perso.texto = e.target.value; renderPerso(); update(); };
+    $("#perso-color").onchange = (e) => { state.perso.color = e.target.checked; update(); };
+    renderPerso();
 
     const qty = $("#qty");
     const setQty = (v) => { state.qty = Math.max(1, Math.min(500, v | 0 || 1)); qty.value = state.qty; update(); };
@@ -3177,6 +3272,8 @@
     if (state.acabado === "pintado") material += " · pintado a mano";
     if (state.led.on) material += " · LED";
     if (hardwareList().length) material += " · tornillería";
+    const pzOrden = persoInfo();
+    if (pzOrden) material += ` · personalizado «${pzOrden.texto}»`;
     const pres = C.embalaje.presentacion[state.presentacion];
     if (pres) material += ` · ${pres.nombre.toLowerCase()}`;
     if (q > 1) material += ` · ${q} unidades`;
@@ -3361,7 +3458,7 @@
     const W = 1080, pad = 36, head = 210, foot = 64, gap = 16, info = 56;
     const tile = Math.floor((W - pad * 2 - (cols - 1) * gap) / cols);
     // servicios adicionales (LED, pintura, colores, ensamble, mínimo) para que la ficha cuadre con el total
-    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐", herrajes: "🔩", embalaje: "📦", presentacion: "🎁", exhibidor: "🏛", envio: "🚚" };
+    const icons = { led: "💡", color: "◐", pintura: "🖌", ensamble: "✚", cambios: "◐", herrajes: "🔩", embalaje: "📦", presentacion: "🎁", exhibidor: "🏛", diseno: "✏", perso: "✍", envio: "🚚" };
     const extraRows = r.extras.map((e) => [icons[e.key] || "+", e.label, e.precio]);
     if (r.minimo > 0) extraRows.push(["$", "Ajuste a pedido mínimo", r.minimo]);
     const rowH = 46, extrasH = extraRows.length ? 56 + extraRows.length * rowH : 0;
@@ -3736,6 +3833,153 @@
     }
   }
 
+  /* ---------------- mis diseños ---------------- */
+  // la vista liviana se carga en el cotizador y luego se le ponen las medidas del original
+  function applyDesign(model, d) {
+    const S = C.soportes;
+    model.design = d; // el cotizador suma el valor del diseño
+    for (const pc of model.pieces) {
+      const m = d.medidas.find((x) => x.nombre === pc.name);
+      if (m) Object.assign(pc, { volume: m.vol, area: m.area, supVol: m.supVol, supArea: m.supArea, ...(m.base ? { base: m.base } : {}) });
+    }
+    for (const k of ["volume", "area", "supVol", "supArea"]) model[k] = model.pieces.reduce((a, pc) => a + pc[k], 0);
+    state.supports = model.supVol * S.densidad + model.supArea * S.contacto_mm > 800;
+    $("#supports").checked = state.supports;
+    // material y colores sugeridos (si están disponibles en el inventario)
+    if (C.materiales[d.material] && !matAgotado(d.material)) state.mat = d.material;
+    const cols = C.materiales[state.mat].colores;
+    const idx = (names) => [].concat(names).map((n) => cols.findIndex((c) => c.nombre === n && !c.agotado)).find((i) => i >= 0);
+    state.color = firstColor(state.mat);
+    const pinta = model.pieces.map((pc, j) => [j, idx((d.colores || {})[pc.name] || [])]).filter(([, i]) => i != null && i !== state.color);
+    state.acabado = pinta.length ? "multi" : "uno";
+    state.baseColor = state.color;
+    pinta.forEach(([j, i]) => { state.pieceColors[`0:${j}`] = i; });
+    renderMaterials();
+    renderFinish();
+  }
+
+  function loadDesign(i) {
+    const d = C.disenos[i];
+    $("#cotizador").scrollIntoView({ behavior: "smooth" });
+    showLoader("Cargando diseño…", null, d.nombre);
+    fetch(d.vista).then((r) => r.arrayBuffer()).then((buf) => read3MF(buf, d.nombre)).then((res) => {
+      state.sourceFiles = []; // es un diseño nuestro: el cliente no envía archivo
+      state.designPend = d;
+      finishLoad(res, `${d.nombre} (diseño HHH3D)`);
+    }).catch((e) => failLoad(e, "3mf"));
+  }
+
+  // tarjetas con visor 3D propio: se arma al verse en pantalla y gira solo hasta que lo toquen
+  function renderDesigns() {
+    const list = C.mostrar_disenos ? C.disenos || [] : [];
+    // la sección y su enlace del menú tienen display propio: se ocultan por estilo
+    [$("#disenos"), ...document.querySelectorAll('a[href="#disenos"]')].forEach((el) => { el.style.display = list.length ? "" : "none"; });
+    $("#designs").innerHTML = list.map((d, i) => `
+      <article class="card design">
+        <div class="design-view" data-i="${i}"><canvas></canvas><span class="design-hint mono">↻ arrastra para girar</span></div>
+        <div class="card-body">
+          <span class="card-tag mono">Diseño HHH3D · ${d.material} · <span data-dims="${i}">…</span></span>
+          <h3>${d.nombre}</h3>
+          <p class="design-desc">${d.desc}</p>
+          <div class="card-foot">
+            <span class="card-price" data-price="${i}"></span>
+            <button type="button" class="btn btn-sm" data-design="${i}">Imprimir este diseño</button>
+          </div>
+        </div>
+      </article>`).join("");
+    $("#designs").querySelectorAll("[data-design]").forEach((b) => { b.onclick = () => loadDesign(+b.dataset.design); });
+    const io = new IntersectionObserver((ents) => ents.forEach((en) => {
+      const box = en.target;
+      if (en.isIntersecting && !box.dataset.ready) { box.dataset.ready = "1"; designViewer(box, list[+box.dataset.i]); }
+      if (box.view) box.view.visible = en.isIntersecting;
+    }), { rootMargin: "200px" });
+    $("#designs").querySelectorAll(".design-view").forEach((b) => io.observe(b));
+    list.forEach((d, i) => { $(`[data-price="${i}"]`).textContent = designPrice(d); });
+  }
+
+  // precio "desde": el diseño en el color más económico, con la misma fórmula del cotizador
+  function designPrice(d) {
+    const K = C.costos, P = C.impresion, mat = C.materiales[d.material], noz = C.boquillas.find((b) => b.defecto);
+    const lw = noz.d * 1.05, capa = noz.capas[1], S = C.soportes;
+    let pr = 0;
+    for (const m of d.medidas) {
+      const shell = Math.min(m.vol, m.area * P.perimetros * lw);
+      pr += shell + (m.vol - shell) * 0.2 + m.supVol * S.densidad + m.supArea * S.contacto_mm;
+    }
+    const g = (pr / 1000) * mat.densidad;
+    const flow = Math.min(capa * lw * noz.velocidad, P.flujo_max_mm3_s) * P.eficiencia;
+    const h = pr / flow / 3600;
+    const fil = (g / 1000) * priceKg(d.material), luz = h * (C.energia.potencia_w / 1000) * C.energia.precio_kwh, maq = h * machineHour();
+    const obra = ((K.min_preparacion + (C.soportes.min_retirar || 0)) / 60) * K.mano_obra_hora;
+    const costo = fil + luz + maq + obra + (fil + luz + maq) * K.margen_fallos;
+    const imp = Math.max(K.pedido_minimo, roundTo(costo * (1 + K.margen_ganancia), K.redondeo));
+    const E = C.embalaje, cm = d.largo_cm || 0;
+    const caja = E.tamanos.find((t) => cm <= t.hasta_cm) || E.tamanos[E.tamanos.length - 1];
+    const emb = roundTo(caja.precio * (1 + E.margen) + (caja.min / 60) * K.mano_obra_hora * (1 + K.margen_ganancia), K.redondeo);
+    // estimado rápido: se deja un 5 % abajo y en miles para que nunca supere lo que da el cotizador
+    return `desde ${money(Math.floor(((imp + emb + (d.valor_diseno || 0)) * 0.95) / 1000) * 1000)}`;
+  }
+
+  function designViewer(box, d) {
+    const canvas = box.querySelector("canvas");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(35, 1, 1, 5000);
+    // luz más fuerte que en el cotizador: el filamento negro debe verse sobre el fondo oscuro
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x50566a, 1.3));
+    const key = new THREE.DirectionalLight(0xffffff, 1);
+    key.position.set(1, 2, 1.5);
+    const rim = new THREE.DirectionalLight(0x9db4ff, 0.7);
+    rim.position.set(-1.5, 1, -1.2);
+    scene.add(key, rim);
+    const controls = new THREE.OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 1.6;
+    controls.addEventListener("start", () => { controls.autoRotate = false; box.querySelector(".design-hint").hidden = true; });
+    const view = { visible: true };
+    box.view = view;
+    fetch(d.vista).then((r) => r.arrayBuffer()).then((buf) => {
+      const res = parse3MFBuffer(buf, C.maquina.volumen_mm, () => {});
+      const pl = res.plates[0];
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(pl.positions, 3));
+      geo.rotateX(-Math.PI / 2);
+      geo.computeVertexNormals();
+      geo.computeBoundingBox();
+      const bb = geo.boundingBox, size = new THREE.Vector3(), center = new THREE.Vector3();
+      bb.getSize(size);
+      bb.getCenter(center);
+      geo.translate(-center.x, -bb.min.y, -center.z);
+      const cols = C.materiales[d.material].colores;
+      const hex = (names) => (cols.find((c) => [].concat(names || []).includes(c.nombre) && !c.agotado) || cols[firstColor(d.material)] || cols[0]).hex;
+      pl.pieces.forEach((pc) => geo.addGroup(pc.start * 3, pc.count * 3, pl.pieces.indexOf(pc)));
+      const mats = pl.pieces.map((pc) => new THREE.MeshStandardMaterial({ color: hex((d.colores || {})[pc.name]), roughness: 0.5, metalness: 0.05 }));
+      scene.add(new THREE.Mesh(geo, mats));
+      const grid = new THREE.GridHelper(Math.max(size.x, size.z) * 1.6, 16, 0x4a505e, 0x2d313b);
+      scene.add(grid);
+      const r = size.length() * 0.62;
+      camera.position.set(r * 1.1, r * 0.8, r * 1.3);
+      controls.target.set(0, size.y * 0.4, 0);
+      $(`[data-dims="${box.dataset.i}"]`).textContent = fmtDims([size.x, size.z, size.y]);
+      d.largo_cm = Math.max(size.x, size.y, size.z) / 10;
+      $(`[data-price="${box.dataset.i}"]`).textContent = designPrice(d);
+    }).catch(() => { box.classList.add("err"); });
+    const resize = () => {
+      const w = box.clientWidth, h = box.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+    new ResizeObserver(resize).observe(box);
+    resize();
+    (function loop() {
+      if (view.visible) { controls.update(); renderer.render(scene, camera); }
+      requestAnimationFrame(loop);
+    })();
+  }
+
   /* ---------------- materiales y ticker ---------------- */
   function renderMaterialCards() {
     const labels = { resistencia: "Resistencia", flexibilidad: "Flexibilidad", temperatura: "Temperatura", detalle: "Detalle" };
@@ -3784,6 +4028,7 @@
     renderMaterialCards();
     renderTicker();
     renderCatalog();
+    renderDesigns();
     update();
   }
 
