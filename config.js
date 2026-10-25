@@ -336,7 +336,8 @@ window.CONFIG = {
      Fotos: .jpg .png .webp (ideal ~1200 px de ancho). Videos: .mp4 o .webm, cortos
      (menos de 20 MB). Si "media" está vacío se generan vistas 3D con la "forma":
      knot | torus | ico | box | cone | cylinder | sphere | gear
-     ejemplo: true = se muestra con la etiqueta "Ejemplo". Quítalo cuando sea un trabajo real. */
+     ejemplo: true = se muestra con la etiqueta "Ejemplo". Quítalo cuando sea un trabajo real.
+     nota: aclaración corta debajo del nombre (opcional). */
   /* Mis diseños: modelos propios que la gente gira en 3D y pide impresos.
      vista: versión liviana para el visor (no sirve para imprimir con calidad; el original no se publica).
      medidas: las exactas de cada pieza del original (mm³ y mm²) para que el precio sea el real.
@@ -382,7 +383,8 @@ window.CONFIG = {
   ],
 
   catalogo: [
-    { nombre: "Pato Lucas Batman en vitrina", categoria: "Figuras", material: "PLA", color: "#1a1a1a", desde: 99000, forma: "box", media: ["trabajos/pato-lucas-batman-vitrina-1.jpg", "trabajos/pato-lucas-batman-vitrina-2.jpg", "trabajos/pato-lucas-batman-vitrina-3.jpg", "trabajos/pato-lucas-batman-vitrina-4.jpg", "trabajos/pato-lucas-batman-vitrina-5.jpg"] },
+    { nombre: "Pato Lucas Batman", categoria: "Figuras", material: "PLA", color: "#1a1a1a", desde: 99000, forma: "box",
+      nota: "Precio de la figura. La vitrina con la ciudad se vende por separado.", media: ["trabajos/pato-lucas-batman-vitrina-1.jpg", "trabajos/pato-lucas-batman-vitrina-2.jpg", "trabajos/pato-lucas-batman-vitrina-3.jpg", "trabajos/pato-lucas-batman-vitrina-4.jpg", "trabajos/pato-lucas-batman-vitrina-5.jpg"] },
     { nombre: "Lámpara Flor de la Vida", categoria: "Hogar", material: "PLA", color: "#1a1a1a", desde: 65000, forma: "cylinder", media: ["trabajos/lampara-flor-de-la-vida-1.jpg", "trabajos/lampara-flor-de-la-vida-2.jpg", "trabajos/lampara-flor-de-la-vida-3.jpg", "trabajos/lampara-flor-de-la-vida-4.jpg", "trabajos/lampara-flor-de-la-vida-5.jpg", "trabajos/lampara-flor-de-la-vida-6.jpg"] },
     { nombre: "Maceta geométrica", categoria: "Hogar", material: "PLA", color: "#b6f23a", desde: 28000, forma: "ico", media: [], ejemplo: true },
     { nombre: "Engranaje de repuesto", categoria: "Repuestos", material: "PETG", color: "#8a8d93", desde: 18000, forma: "gear", media: [], ejemplo: true },

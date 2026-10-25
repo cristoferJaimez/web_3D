@@ -3678,6 +3678,7 @@
           <div class="card-body">
             <span class="card-tag mono">${it.categoria} · ${it.material}</span>
             <h3>${it.nombre}</h3>
+            ${it.nota ? `<p class="card-note">${it.nota}</p>` : ""}
             <div class="card-foot">
               <span class="card-price">desde ${money(precio)}</span>
               <button type="button" class="btn btn-ghost btn-sm" data-order="${i}">Pedir</button>
@@ -3714,7 +3715,7 @@
     const it = C.catalogo[i];
     const src = prefetchMedia(i);
     const link = `${location.origin}${location.pathname}#trabajo-${slug(it.nombre)}`;
-    const text = `¡Hola, ${C.negocio.nombre}! Me interesa «${it.nombre}» (${it.material}) de tus trabajos.\n${link}`;
+    const text = `¡Hola, ${C.negocio.nombre}! Me interesa «${it.nombre}» (${it.material}) de tus trabajos.${it.nota ? `\n(${it.nota})` : ""}\n${link}`;
     sendWhatsApp(text, (src && mediaBlobs.get(src)) || null, `${slug(it.nombre)}.png`);
   }
 

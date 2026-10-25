@@ -830,3 +830,4 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 .perso-box input#perso-text { width: 100%; padding: .65rem .85rem; border-radius: 12px; background: var(--bg); color: var(--text); border: 1px solid var(--line); font: inherit; }
 .perso-box input#perso-text:focus { outline: none; border-color: var(--accent); }
 .perso-box .check { display: flex; gap: .5rem; align-items: center; font-size: .9rem; cursor: pointer; }
+.card-note { margin: .3rem 0 .7rem; font-size: .85rem; color: var(--muted); line-height: 1.4; }
