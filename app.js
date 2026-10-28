@@ -36,6 +36,8 @@
     herrajes: { on: false, qty: {} }, // id → unidades por pieza
     envio: { modo: "taller", zona: "principal" }, // taller | bogota | nacional
     brim: true, // borde de adherencia
+    multi: null, // varios archivos cargados juntos (para rearmar las placas)
+    agrupar: false, // false = una placa por archivo
     perso: { on: false, texto: "", color: false }, // personalizar con nombre o mensaje
     presentacion: "estandar", // estandar | regalo | base | caja
     fit: "ajustar", // ajustar a la impresora | dividir en placas
@@ -1566,6 +1568,7 @@
     // Si cabe, se limita el tamaño a la impresora; si no, se divide en placas a tamaño real
     state.scale = 100;
     setFit(model.multi || maxScale() >= 100 ? "ajustar" : "dividir");
+    renderPackChips();
   }
 
   function showModel(geo, name, zUp = true, pieces) {
@@ -1989,19 +1992,16 @@
       return;
     }
     state.sourceFiles = files; // se envían con el pedido (comprimidos)
+    state.multi = null;
     if (files.length === 1) return loadFile(files[0]);
-    const stls = files.filter((f) => /\.stl$/i.test(f.name));
-    if (stls.length !== files.length) {
-      toast("Para cargar varios archivos a la vez deben ser STL. Cargamos solo el primero.");
-      return loadFile(files[0]);
-    }
-    loadSTLs(stls);
+    loadMany(files);
   }
 
-  function loadSTLs(files) {
+  // Varios archivos a la vez (STL y/o 3MF). Por defecto cada STL va en su propia placa, para que
+  // el cliente vea todos los que cargó; con "Acomodar juntas" se reparten en menos placas.
+  function loadMany(files) {
     const total = files.reduce((a, f) => a + f.size, 0);
-    const mb = dec(total / 1048576, 1);
-    const sub = `${files.length} archivos STL · ${mb} MB`;
+    const sub = `${files.length} archivos · ${dec(total / 1048576, 1)} MB`;
     let done = 0;
     showLoader("Leyendo archivos… 0%", 0, sub);
     Promise.all(files.map((f) => f.arrayBuffer().then((buf) => {
@@ -2009,17 +2009,24 @@
       showLoader(`Leyendo archivos… ${Math.round((done / total) * 100)}%`, done / total, sub);
       return { name: f.name, buf };
     }))).then((list) => {
-      showLoader("Acomodando piezas en las placas…", null, sub);
+      showLoader("Preparando las placas…", null, sub);
       requestAnimationFrame(() => setTimeout(() => {
         try {
           const loader = new THREE.STLLoader();
-          const items = list.map(({ name, buf }) => {
-            let geo = loader.parse(buf);
-            if (geo.index) geo = geo.toNonIndexed();
-            return { name, pos: geo.attributes.position.array };
-          });
+          const stl = [], mf = [];
+          for (const { name, buf } of list) {
+            if (/\.3mf$/i.test(name)) {
+              // un 3MF trae sus propias placas: se respetan tal cual
+              parse3MFBuffer(buf, C.maquina.volumen_mm, () => {}).plates.forEach((pl) =>
+                mf.push({ ...pl, pieces: pl.pieces.map((pc) => ({ ...pc, name: pc.name || name })) }));
+            } else {
+              let geo = loader.parse(buf);
+              if (geo.index) geo = geo.toNonIndexed();
+              stl.push({ name, pos: geo.attributes.position.array });
+            }
+          }
           const [bx, by, bz] = C.maquina.volumen_mm;
-          const tooBig = items.filter((it) => {
+          const tooBig = stl.filter((it) => {
             let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
             for (let i = 0; i < it.pos.length; i += 3) {
               x0 = Math.min(x0, it.pos[i]); x1 = Math.max(x1, it.pos[i]);
@@ -2033,17 +2040,34 @@
             showWarn(`${tooBig.map((t) => t.name).join(", ")} no ${tooBig.length === 1 ? "cabe" : "caben"} en la ${C.maquina.nombre}. Cárgalo solo para dividirlo en placas, o escríbenos.`);
             return;
           }
-          const plates = packPieces(items, [bx, by, bz]).map((pl) => {
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute("position", new THREE.BufferAttribute(pl.positions, 3));
-            return { id: pl.id, geo, pieces: pl.pieces };
-          });
-          finishLoad({ origen: "auto", plates }, projectName(files.map((f) => f.name)));
+          state.multi = { stl, mf, name: projectName(list.map((f) => f.name)) };
+          showMany();
         } catch (e) {
-          failLoad(e, "STL");
+          failLoad(e, "archivo");
         }
       }, 30));
-    }).catch((e) => failLoad(e, "STL"));
+    }).catch((e) => failLoad(e, "archivo"));
+  }
+
+  // arma las placas según la opción elegida: una por archivo o acomodadas juntas
+  function showMany() {
+    const { stl, mf, name } = state.multi, bed = C.maquina.volumen_mm;
+    const sueltas = state.agrupar ? packPieces(stl, bed) : stl.map((it) => packPieces([it], bed)[0]);
+    const plates = [...sueltas, ...mf].map((pl, i) => {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(pl.positions, 3));
+      return { id: i + 1, geo, pieces: pl.pieces };
+    });
+    finishLoad({ origen: "auto", plates }, name);
+  }
+
+  function renderPackChips() {
+    const box = $("#pack-chips"), m = state.multi;
+    box.hidden = !m || m.stl.length < 2;
+    if (box.hidden) return;
+    box.replaceChildren(
+      chip("Una placa por archivo", !state.agrupar, () => { if (state.agrupar) { state.agrupar = false; showMany(); } }),
+      chip("Acomodar juntas (ahorra placas)", state.agrupar, () => { if (!state.agrupar) { state.agrupar = true; showMany(); } }));
   }
 
   // "HHH-GAMER_v3_1_letras.stl", "HHH-GAMER_v3_2_tapa.stl"… → "HHH-GAMER_v3 (4 STL)"
@@ -2051,7 +2075,7 @@
     let pre = names[0];
     for (const n of names) while (!n.startsWith(pre)) pre = pre.slice(0, -1);
     pre = pre.replace(/[\s_\-.]+\d*$/, "").replace(/[\s_\-.]+$/, "");
-    return `${pre || "Proyecto"} (${names.length} STL)`;
+    return `${pre || "Proyecto"} (${names.length} archivos)`;
   }
 
   function loadFile(file) {
@@ -2500,7 +2524,9 @@
     } else if (state.fit === "ajustar" && maxScale() < 100) {
       showWarn(`Tu modelo es más grande que la ${C.maquina.nombre} (${vx}×${vy}×${vz} mm), así que lo ajustamos al ${maxScale()}%. Para tenerlo a tamaño real elige "Dividir en placas".`);
     } else if (state.model.multi) {
-      showWarn(state.model.auto
+      showWarn(state.multi && !state.agrupar && state.multi.stl.length > 1
+        ? `Cargaste ${state.multi.stl.length + state.multi.mf.length > state.multi.stl.length ? "varios archivos" : `${state.multi.stl.length} archivos`}: cada STL va en su propia placa (${r.parts.length} en total). Si son piezas pequeñas, "Acomodar juntas" las reparte en menos placas y sale más económico.`
+        : state.model.auto
         ? `Acomodamos tus piezas enteras (sin cortarlas) en ${r.parts.length} placas de la ${C.maquina.nombre}.`
         : `Tu archivo ya viene en ${r.parts.length} placas: cada una se imprime por separado y aquí ves el precio de cada una.`);
     } else if (r.packed) {
@@ -3865,6 +3891,7 @@
     showLoader("Cargando diseño…", null, d.nombre);
     fetch(d.vista).then((r) => r.arrayBuffer()).then((buf) => read3MF(buf, d.nombre)).then((res) => {
       state.sourceFiles = []; // es un diseño nuestro: el cliente no envía archivo
+      state.multi = null;
       state.designPend = d;
       finishLoad(res, `${d.nombre} (diseño HHH3D)`);
     }).catch((e) => failLoad(e, "3mf"));
