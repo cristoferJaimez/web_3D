@@ -53,14 +53,43 @@ window.CONFIG = {
     seg_por_capa: 2,          // cambio de capa
   },
 
+  // Laminado simulado: la página corta la pieza en capas como Bambu Studio y suma el recorrido de
+  // paredes, pisos/techos sólidos y relleno. Los segundos por mm están calibrados contra Bambu Studio
+  // (perfil 0.20mm Standard @BBL A1, 3 paredes, 20 % de relleno) con 23 modelos de prueba y el alien:
+  // error medio de 11 % en tiempo y 5 % en peso de la pieza.
+  laminado: {
+    s_pared: 0.00912,         // segundos por mm de pared (incluye frenadas en curvas y esquinas)
+    s_solido: 0.0117,          // segundos por mm de piso/techo sólido
+    s_relleno: 0.0013,       // segundos por mm de relleno ralo
+    s_contorno: 0,            // segundos extra por mm de contorno (curvas y esquinas)
+    s_voladizo: 0.0914,        // segundos extra por mm de pared en voladizo (Bambu la imprime lenta)
+    s_isla: 0.647,            // segundos por cada isla de cada capa (salto, retracción y vuelta a empezar)
+    s_soporte: 0.0213,        // segundos por mm de soporte
+    seg_capa: 2.43,           // cambio de capa
+    seg_min_capa: 6,          // Bambu nunca imprime una capa en menos de esto (enfriamiento)
+    seg_inicio: 0,            // ajuste fijo por placa (la preparación va aparte)
+    seg_preparacion: 393,     // preparación de la A1 por placa: calentar, nivelar, limpiar boquilla (6 min 33 s en Bambu)
+    timelapse_seg_capa: 1.6,  // grabas timelapse: la A1 se detiene a tomar la foto en cada capa (0 si no grabas)
+    factor_material: 1.016,   // material de más que pone Bambu (costuras, puentes, rellenos de huecos)
+    // calidad "Detalle" (índice 2 = perfil 0.16mm High Quality: paredes exteriores a 60 mm/s), calibrada aparte
+    por_calidad: {
+      2: { s_pared: 0.0144, s_solido: 0.0114, s_relleno: 0.0082, s_voladizo: 0.103, s_isla: 0.677, seg_capa: 1.97, s_soporte: 0.0167, factor_material: 1.032 },
+    },
+    capas_techo: 5, techo_mm: 1.0,
+    capas_piso: 3, piso_mm: 0.6,
+  },
+
   // Soportes calculados con la forma de la pieza (valores por defecto de Bambu Studio)
   // Como imprimes en Bambu Studio: soporte árbol (orgánico) a 30° y borde de adherencia automático de 5 mm.
-  // densidad y contacto: punto medio entre el cálculo anterior y Bambu Studio (motor radial: ~2,6 g; Bambu 3,37 g).
+  // Calibrado con el peso de soporte de Bambu Studio en 23 modelos de prueba (soporte árbol):
+  // el material crece con el área de pared en voladizo y con la altura a la que está.
   soportes: {
     tipo: "arbol",            // "arbol" (orgánico) o "normal": cambia cómo se dibuja en el visor
     angulo: 30,               // caras con menos de 30° de inclinación respecto a la cama llevan soporte
-    densidad: 0.245,          // material del soporte por cada mm³ de aire bajo los voladizos
-    contacto_mm: 0.5,         // puntas que tocan la pieza (mm de material por mm² sostenido)
+    k_area: 1.557,            // mm³ de soporte por cada mm² de pared en voladizo…
+    k_altura: 0.02095,        // …más esto por cada mm de altura a la que está ese voladizo
+    densidad: 0.0753,         // (placas cortadas) material por cada mm³ de aire bajo los voladizos
+    contacto_mm: 0,           // (placas cortadas) puntas que tocan la pieza por mm² sostenido
     min_retirar: 3,           // por placa con soportes: retirarlos y limpiar marcas…
     min_por_g: 0.3,           // …más 0,3 min por gramo de soporte
   },
@@ -95,15 +124,15 @@ window.CONFIG = {
     redondeo: 500,            // redondear el total a múltiplos de…
   },
 
-  // Boquillas que tienes para la A1. capas = altura de capa para [Rápida, Estándar, Fina]
+  // Boquillas que tienes para la A1. capas = altura de capa para [Rápida, Estándar, Detalle, Fina]
   // velocidad = velocidad media real con esa boquilla (mm/s)
   boquillas: [
-    { d: 0.2, velocidad: 70,  capas: [0.14, 0.10, 0.06] },
-    { d: 0.4, velocidad: 120, capas: [0.28, 0.20, 0.12], defecto: true },
-    { d: 0.6, velocidad: 110, capas: [0.42, 0.30, 0.18] },
-    { d: 0.8, velocidad: 90,  capas: [0.56, 0.40, 0.24] },
+    { d: 0.2, velocidad: 70,  capas: [0.14, 0.10, 0.08, 0.06] },
+    { d: 0.4, velocidad: 120, capas: [0.28, 0.20, 0.16, 0.12], defecto: true },
+    { d: 0.6, velocidad: 110, capas: [0.42, 0.30, 0.24, 0.18] },
+    { d: 0.8, velocidad: 90,  capas: [0.56, 0.40, 0.32, 0.24] },
   ],
-  calidades: ["Rápida", "Estándar", "Fina"],
+  calidades: ["Rápida", "Estándar", "Detalle", "Fina"], // Detalle = perfil 0.16mm High Quality (figuras)
 
   // Acabados: un color, un color distinto por placa, o pintado a mano.
   // La pintura se cobra por superficie de la pieza (cada 100 cm²).

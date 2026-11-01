@@ -831,3 +831,21 @@ kbd { font-family: var(--mono); font-size: .8rem; padding: .05rem .4rem; border-
 .perso-box input#perso-text:focus { outline: none; border-color: var(--accent); }
 .perso-box .check { display: flex; gap: .5rem; align-items: center; font-size: .9rem; cursor: pointer; }
 .card-note { margin: .3rem 0 .7rem; font-size: .85rem; color: var(--muted); line-height: 1.4; }
+
+/* ---------- pincel multicolor ---------- */
+.brush-tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .6rem; }
+.brush-tools[hidden], .brush-size[hidden] { display: none; }
+.brush-size { display: flex; gap: .45rem; align-items: center; font-size: .85rem; color: var(--muted); }
+.brush-size input { width: 110px; }
+
+/* ---------- vacaciones: pantalla en pixel art ---------- */
+.vacaciones { position: fixed; inset: 0; z-index: 1000; background: #2b1b4a; overflow: hidden; display: grid; justify-items: center; align-items: start; animation: vac-in .5s ease; }
+.vacaciones canvas { position: absolute; left: 0; top: 0; image-rendering: pixelated; }
+.vacaciones.bye { opacity: 0; transition: opacity .4s; }
+.vac-txt { position: relative; margin: 24vh 16px 0; padding: 14px 18px; max-width: 560px; text-align: center; background: rgba(20, 12, 36, .82); border: 3px solid #f7b267; box-shadow: 5px 5px 0 #1a0f2e; color: #fff4e0; font: 400 15px/1.6 "Space Grotesk", sans-serif; }
+.vac-txt p { margin: 0 0 .4rem; }
+.vac-txt .pix { font: 400 11px/1.9 "Press Start 2P", monospace; color: #ffd166; }
+.vac-txt button { margin-top: 8px; padding: 10px 14px; font: 400 11px "Press Start 2P", monospace; background: #ffd166; color: #2b1b4a; border: 0; box-shadow: 3px 3px 0 #a23a72; cursor: pointer; }
+.vac-txt button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 #a23a72; }
+@keyframes vac-in { from { opacity: 0; } }
+.vacaciones.es-taller .vac-txt { margin-top: 20vh; }

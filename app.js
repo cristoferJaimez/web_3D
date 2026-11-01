@@ -32,6 +32,7 @@
     notes: "", // observaciones del cliente para el pedido
     offPlates: new Set(), // placas que el cliente no quiere imprimir
     baseColor: 0, // color de las piezas sin pintar en multicolor
+    brush: { tool: "pieza", mm: 3 }, // multicolor: pintar la pieza entera, o detalles con pincel (radio en mm)
     led: { on: false, tipo: "blanco", metros: null }, // metros null = sugerido por la pieza
     herrajes: { on: false, qty: {} }, // id → unidades por pieza
     envio: { modo: "taller", zona: "principal" }, // taller | bogota | nacional
@@ -1227,8 +1228,75 @@
       if (!base) base = [Infinity, Infinity, -Infinity, -Infinity];
       base = [Math.min(base[0], ...xs), Math.min(base[1], ...zs), Math.max(base[2], ...xs), Math.max(base[3], ...zs)];
     }
+    const prof = perfilCapas(p, start * 9, (start + count) * 9, vol < 0 ? -1 : 1, minY, maxY);
     // medidas en mm: ancho (X), fondo (Z) y alto (Y)
-    return { volume: Math.abs(vol), area, minY, maxY, minX, minZ, dims: [maxX - minX, maxZ - minZ, maxY - minY], ...sup, base };
+    return { volume: Math.abs(vol), area, minY, maxY, minX, minZ, dims: [maxX - minX, maxZ - minZ, maxY - minY], ...sup, base, prof };
+  }
+
+  // Laminado simulado: corta la pieza en franjas finas de altura y en cada una mide el largo del
+  // contorno (por donde van las paredes) y el área de la sección (lo que se rellena).
+  // Con eso se simula cualquier altura de capa y escala sin volver a cortar la malla.
+  function perfilCapas(p, i0, i1, sign, minY, maxY) {
+    const H = maxY - minY, n = Math.max(1, Math.min(4000, Math.ceil(H / 0.05))), dy = H / n || 1;
+    const per = new Float32Array(n), area = new Float32Array(n), isl = new Float32Array(n);
+    const cuelga = new Float32Array(n); // contorno en voladizo: Bambu imprime esas paredes mucho más lento
+    // islas por capa (cada una es un salto con retracción): se cuentan en ~250 franjas uniendo los tramos
+    // que comparten punta; el punto donde el plano corta una arista sale igual en los dos triángulos vecinos
+    const paso = Math.max(1, Math.ceil(n / 250)), nodos = new Map(), uniones = new Map();
+    const nodo = (k, x, z) => {
+      let m = nodos.get(k);
+      if (!m) nodos.set(k, (m = new Map()));
+      const key = x + "," + z;
+      let id = m.get(key);
+      if (id === undefined) { id = m.size; m.set(key, id); }
+      return id;
+    };
+    for (let i = i0; i < i1; i += 9) {
+      // vértices ordenados por altura
+      let a = i, b = i + 3, c = i + 6;
+      if (p[a + 1] > p[b + 1]) [a, b] = [b, a];
+      if (p[b + 1] > p[c + 1]) [b, c] = [c, b];
+      if (p[a + 1] > p[b + 1]) [a, b] = [b, a];
+      const ya = p[a + 1], yb = p[b + 1], yc = p[c + 1];
+      if (yc - ya < 1e-9) continue;
+      // normal hacia afuera en el plano: orienta cada tramo para sumar el área con signo
+      const ux = p[i + 3] - p[i], uy = p[i + 4] - p[i + 1], uz = p[i + 5] - p[i + 2];
+      const vx = p[i + 6] - p[i], vy = p[i + 7] - p[i + 1], vz = p[i + 8] - p[i + 2];
+      const nx = sign * (uy * vz - uz * vy), nz = sign * (ux * vy - uy * vx);
+      const nyv = sign * (uz * vx - ux * vz), voladizo = nyv < -0.45 * Math.hypot(nx, nyv, nz); // cara inclinada hacia abajo
+      const k0 = Math.max(0, Math.ceil((ya - minY) / dy - 0.5)), k1 = Math.min(n - 1, Math.floor((yc - minY) / dy - 0.5));
+      for (let k = k0; k <= k1; k++) {
+        const y = minY + (k + 0.5) * dy;
+        const t = (y - ya) / (yc - ya);
+        const x1 = p[a] + (p[c] - p[a]) * t, z1 = p[a + 2] + (p[c + 2] - p[a + 2]) * t;
+        let x2, z2;
+        if (y < yb) { const s = (y - ya) / (yb - ya || 1); x2 = p[a] + (p[b] - p[a]) * s; z2 = p[a + 2] + (p[b + 2] - p[a + 2]) * s; }
+        else { const s = (y - yb) / (yc - yb || 1); x2 = p[b] + (p[c] - p[b]) * s; z2 = p[b + 2] + (p[c + 2] - p[b + 2]) * s; }
+        const tramo = Math.hypot(x2 - x1, z2 - z1);
+        per[k] += tramo;
+        if (voladizo) cuelga[k] += tramo;
+        const o = (x2 - x1) * -nz + (z2 - z1) * nx >= 0 ? 1 : -1; // el interior queda a la izquierda
+        area[k] += (o * (x1 * z2 - x2 * z1)) / 2;
+        if (k % paso === 0) {
+          let u = uniones.get(k);
+          if (!u) uniones.set(k, (u = []));
+          u.push(nodo(k, x1, z1), nodo(k, x2, z2));
+        }
+      }
+    }
+    for (let k = 0; k < n; k++) area[k] = Math.abs(area[k]);
+    // cuenta las islas de cada franja muestreada (unión de tramos) y las reparte a las vecinas
+    for (const [k, u] of uniones) {
+      const padre = new Int32Array(nodos.get(k).size).map((_, i) => i);
+      const raiz = (i) => { while (padre[i] !== i) i = padre[i] = padre[padre[i]]; return i; };
+      let grupos = padre.length;
+      for (let j = 0; j < u.length; j += 2) {
+        const a = raiz(u[j]), b = raiz(u[j + 1]);
+        if (a !== b) { padre[a] = b; grupos--; }
+      }
+      for (let q = k; q < Math.min(n, k + paso); q++) isl[q] = grupos;
+    }
+    return { dy, per, area, isl, cuelga };
   }
 
   // Soportes según la forma: como el laminador, toma las caras que miran hacia abajo con
@@ -1380,11 +1448,13 @@
     const parts = plates.map((pl, i) => {
       const total = pl.items.reduce((n, it) => n + m.pieces[it.j].count * 9, 0);
       const out = new Float32Array(total);
+      const srcFace = new Int32Array(total / 9);
       const pieces = [];
       let o = 0;
       for (const { j, x, z } of pl.items) {
         const pc = m.pieces[j];
         const dx = x / s - pc.minX, dz = z / s - pc.minZ, dy = -pc.minY;
+        for (let t = 0; t < pc.count; t++) srcFace[o / 9 + t] = pc.start + t;
         pieces.push({ name: pc.name, start: o / 9, count: pc.count });
         for (let k = pc.start * 9, end = (pc.start + pc.count) * 9; k < end; k += 3) {
           out[o++] = src[k] + dx;
@@ -1395,6 +1465,7 @@
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(out, 3));
       const pg = prepareGeometry(geo, false, pieces);
+      Object.assign(pg.geo.userData, { paintRoot: m.geo, srcFace });
       return {
         vol: pg.volume, area: pg.area, minY: 0, h: pg.size.y, geo: pg.geo, label: i + 1, pieces: pg.pieces, supCols: pg.supCols,
         b: { x0: -pg.size.x / 2, x1: pg.size.x / 2, y0: 0, y1: pg.size.y, z0: -pg.size.z / 2, z1: pg.size.z / 2 },
@@ -1556,8 +1627,7 @@
     const dz = state.designPend;
     state.designPend = null;
     if (dz) applyDesign(model, dz);
-    const sv = model.multi ? model.plates.reduce((a, pl) => a + pl.supVol * C.soportes.densidad + pl.supArea * C.soportes.contacto_mm, 0)
-      : model.supVol * C.soportes.densidad + model.supArea * C.soportes.contacto_mm;
+    const sv = (model.multi ? model.plates.flatMap((pl) => pl.pieces) : model.pieces).reduce((a, pc) => a + soporteDe(pc, pc.minY, 1), 0);
     state.supports = sv > 800; // más de ~1 g de soporte
     $("#supports").checked = state.supports;
 
@@ -1737,7 +1807,7 @@
         viewer.mesh.add(supportMesh(state.model.supCols, viewer.supportMat));
         viewer.mesh.userData.sup = state.model.supCols;
       }
-      viewer.mesh.children.forEach((c) => { c.visible = state.supports; });
+      viewer.mesh.children.forEach((c) => { if (!c.userData.paint) c.visible = state.supports; });
       // pieza pequeña: el cabezal se estaciona arriba para no tapar la vista de cerca
       const sz = state.model.size, [bx, , bz] = C.maquina.volumen_mm;
       const small = Math.max(sz.x, sz.y, sz.z) * s < bx * 0.35;
@@ -1885,25 +1955,86 @@
   // Colores del visor según el color de cada pieza
   function paintViews() {
     const cols = C.materiales[state.mat].colores;
-    viewer.material.color.set(cols[state.color].hex);
+    viewer.material.color.set(cols[colorOf(0, 0)].hex); // en multicolor, la paleta es el pincel: no tiñe la pieza
     if (viewer.mesh && Array.isArray(viewer.mesh.material)) {
       viewer.mesh.material.forEach((mt, j) => mt.color.set(cols[colorOf(0, j)].hex));
     }
     (viewer.partMats || []).forEach((mats, i) => mats.forEach((mt, j) => mt.color.set(cols[colorOf(i, j)].hex)));
   }
 
-  // Multicolor: clic (sin arrastrar) sobre una pieza la pinta con el color elegido
+  // Pintura con pincel: un color por cara, guardado en la malla original (el modelo o la placa del 3MF).
+  // Las piezas acomodadas en placas apuntan a la malla original con srcFace.
+  const paintSrc = (g) => (g.userData.paintRoot ? [g.userData.paintRoot, g.userData.srcFace] : [g, null]);
+
+  // pinta (o borra) las caras dentro del radio del pincel que miran a la cámara
+  function brushAt(hit) {
+    const mesh = hit.object, g = mesh.geometry, [root, map] = paintSrc(g), u = root.userData;
+    if (!u.paint) u.paint = new Int8Array(root.attributes.position.count / 3).fill(-1);
+    const pos = g.attributes.position.array, nrm = g.attributes.normal.array, nF = pos.length / 9;
+    const p = mesh.worldToLocal(hit.point.clone()), cam = mesh.worldToLocal(viewer.camera.position.clone());
+    const r2 = (state.brush.mm / mesh.scale.x) ** 2; // radio en mm reales → unidades del modelo
+    const val = state.brush.tool === "borrar" ? -1 : state.color;
+    for (let f = 0, o = 0; f < nF; f++, o += 9) {
+      const cx = (pos[o] + pos[o + 3] + pos[o + 6]) / 3, cy = (pos[o + 1] + pos[o + 4] + pos[o + 7]) / 3, cz = (pos[o + 2] + pos[o + 5] + pos[o + 8]) / 3;
+      if ((cx - p.x) ** 2 + (cy - p.y) ** 2 + (cz - p.z) ** 2 > r2 && f !== hit.faceIndex) continue;
+      // las caras de atrás no: el pincel no atraviesa paredes delgadas
+      if (nrm[o] * (cam.x - cx) + nrm[o + 1] * (cam.y - cy) + nrm[o + 2] * (cam.z - cz) <= 0) continue;
+      u.paint[map ? map[f] : f] = val;
+    }
+    u.paintVer = (u.paintVer || 0) + 1;
+    renderPaint();
+  }
+
+  function clearPaint() {
+    const m = state.model;
+    if (!m) return;
+    for (const g of [m.geo, ...(m.plates || []).map((pl) => pl.geo)]) {
+      if (g.userData.paint) { g.userData.paint = null; g.userData.paintVer = (g.userData.paintVer || 0) + 1; }
+    }
+  }
+
+  // Lo pintado se dibuja como una capa de triángulos de color encima de cada vista de la pieza
+  function renderPaint() {
+    const on = state.acabado === "multi", cols = C.materiales[state.mat].colores;
+    const meshes = [];
+    if (viewer.mesh && viewer.mesh.visible) meshes.push(viewer.mesh);
+    if (viewer.partsGroup) viewer.partsGroup.traverse((o) => o.userData.planes && meshes.push(o));
+    const tint = new THREE.Color();
+    for (const mesh of meshes) {
+      const g = mesh.geometry, [root, map] = paintSrc(g), paint = root.userData.paint;
+      const key = on && paint ? `${root.userData.paintVer}|${state.mat}` : "";
+      let ov = mesh.children.find((c) => c.userData.paint);
+      if (ov && ov.userData.key === key) continue;
+      if (ov) { mesh.remove(ov); ov.geometry.dispose(); ov.material.dispose(); }
+      if (!key) continue;
+      const pos = g.attributes.position.array, nrm = g.attributes.normal.array, nF = pos.length / 9;
+      const P = [], N = [], K = [];
+      for (let f = 0; f < nF; f++) {
+        const c = paint[map ? map[f] : f];
+        if (c < 0) continue;
+        tint.set((cols[c] || cols[0]).hex);
+        for (let k = f * 9; k < f * 9 + 9; k++) { P.push(pos[k]); N.push(nrm[k]); }
+        K.push(tint.r, tint.g, tint.b, tint.r, tint.g, tint.b, tint.r, tint.g, tint.b);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(K, 3));
+      ov = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.05,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4, clippingPlanes: mesh.userData.planes || null }));
+      ov.userData = { paint: true, key };
+      mesh.add(ov);
+    }
+  }
+
+  // Multicolor: clic (sin arrastrar) sobre una pieza la pinta con el color elegido;
+  // con el pincel, arrastrar sobre la pieza pinta (fuera de ella, el arrastre gira la cámara)
   function initPainting() {
     const ray = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
-    let down = null;
+    let down = null, stroke = false, pending = null;
     const canvas = viewer.renderer.domElement;
-    canvas.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
-    canvas.addEventListener("pointerup", (e) => {
-      if (!down || state.acabado !== "multi" || !state.model) return;
-      const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]);
-      down = null;
-      if (moved > 5) return; // fue un giro de cámara
+    const pick = (e) => {
       const rect = canvas.getBoundingClientRect();
       ndc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       ray.setFromCamera(ndc, viewer.camera);
@@ -1911,8 +2042,41 @@
         ? (() => { const list = []; viewer.partsGroup.traverse((o) => o.userData.planes && o.parent.visible && list.push(o)); return list; })()
         : [viewer.mesh];
       // las placas comparten la malla: descartar choques en zonas recortadas o en otra placa
-      const hit = ray.intersectObjects(targets, false).find((h) =>
+      return ray.intersectObjects(targets, false).find((h) =>
         !h.object.userData.planes || h.object.userData.planes.every((pl) => pl.distanceToPoint(h.point) >= -0.05));
+    };
+    // en captura: si el trazo empieza sobre la pieza, la cámara no se mueve
+    canvas.addEventListener("pointerdown", (e) => {
+      if (state.acabado !== "multi" || state.brush.tool === "pieza" || !state.model || e.button !== 0) return;
+      const hit = pick(e);
+      if (!hit) return;
+      viewer.controls.enabled = false;
+      stroke = true;
+      canvas.setPointerCapture(e.pointerId);
+      brushAt(hit);
+    }, true);
+    canvas.addEventListener("pointermove", (e) => {
+      if (!stroke) return;
+      const first = !pending;
+      pending = e;
+      if (first) requestAnimationFrame(() => { const hit = stroke && pick(pending); pending = null; if (hit) brushAt(hit); });
+    });
+    const end = () => {
+      if (!stroke) return;
+      stroke = false;
+      viewer.controls.enabled = true;
+      update();
+    };
+    canvas.addEventListener("pointerup", end);
+    canvas.addEventListener("pointercancel", end);
+
+    canvas.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
+    canvas.addEventListener("pointerup", (e) => {
+      if (!down || state.acabado !== "multi" || state.brush.tool !== "pieza" || !state.model) return;
+      const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]);
+      down = null;
+      if (moved > 5) return; // fue un giro de cámara
+      const hit = pick(e);
       if (!hit) return;
       const i = hit.object.userData.part || 0;
       const pieces = (state.lastParts[i] && state.lastParts[i].r.pieces) || [];
@@ -2210,45 +2374,80 @@
   /* ---------------- cálculo ---------------- */
   // Una placa: vol (mm³), area (mm²) y h (mm) ya escalados
   // Una placa con sus piezas (cada una puede ir en otro color). Valores ya escalados.
-  function calcPart(pieces, h) {
+  // Detalles pintados con el pincel en esta placa: por color, tramos de altura [lo, hi, lo, hi…] (mm ya escalados)
+  function platePaint(p, s) {
+    const g = p.geo || state.model.geo, [root, map] = paintSrc(g), paint = root.userData.paint;
+    if (!paint) return null;
+    const pos = g.attributes.position.array, nF = pos.length / 9, b = p.geo ? null : p.b;
+    const out = new Map();
+    for (let f = 0, o = 0; f < nF; f++, o += 9) {
+      const c = paint[map ? map[f] : f];
+      if (c < 0) continue;
+      if (b) { // pieza cortada: solo lo pintado dentro de esta placa
+        const cx = (pos[o] + pos[o + 3] + pos[o + 6]) / 3, cy = (pos[o + 1] + pos[o + 4] + pos[o + 7]) / 3, cz = (pos[o + 2] + pos[o + 5] + pos[o + 8]) / 3;
+        if (cx < b.x0 || cx > b.x1 || cy < b.y0 || cy > b.y1 || cz < b.z0 || cz > b.z1) continue;
+      }
+      const y0 = Math.min(pos[o + 1], pos[o + 4], pos[o + 7]), y1 = Math.max(pos[o + 1], pos[o + 4], pos[o + 7]);
+      if (!out.has(c)) out.set(c, []);
+      out.get(c).push((y0 - p.minY) * s, (y1 - p.minY) * s);
+    }
+    return out.size ? out : null;
+  }
+
+  function calcPart(pieces, h, paint) {
     const mat = C.materiales[state.mat];
     const P = C.impresion, K = C.costos, M = C.multicolor;
     const noz = nozzle(), capa = layerHeight(), lw = noz.d * 1.05;
     const S = C.soportes;
 
-    let printed = 0, filamento = 0, grams = 0, interior = 0, volumen = 0, supG = 0, bordeG = 0;
+    let printed = 0, filamento = 0, grams = 0, interior = 0, volumen = 0, supG = 0, bordeG = 0, supMm3 = 0;
     const B = C.borde;
-    for (const pc of pieces) {
+    // laminado simulado capa por capa (si las piezas traen su perfil; las placas cortadas usan la estimación por volumen)
+    const lam = C.laminado && pieces.every((pc) => pc.prof) ? laminarPlaca(pieces, capa) : null;
+    pieces.forEach((pc, j) => {
       pc.color = mat.colores[pc.colorIdx] || mat.colores[0];
       const shell = Math.min(pc.vol, pc.area * P.perimetros * lw);
       // soporte: rejilla rala bajo los voladizos + capas de contacto más densas
-      const sop = state.supports ? pc.supVol * S.densidad + pc.supArea * S.contacto_mm : 0;
+      pc.sopNeed = lam ? soporteDe(pc, pc.minY, pc.sc) : pc.supVol * S.densidad + pc.supArea * S.contacto_mm;
+      const sop = state.supports ? pc.sopNeed : 0;
       supG += (sop / 1000) * mat.densidad;
+      supMm3 += sop;
       // borde de adherencia: una capa de B.ancho_mm alrededor de la base (solo piezas que tocan la cama)
       const b = state.brim && B && pc.base && pc.minY < 0.5 ? pc.base : null;
       const borde = b ? (2 * (b[2] - b[0] + b[3] - b[1]) * B.ancho_mm + 4 * B.ancho_mm ** 2) * capa : 0;
       bordeG += (borde / 1000) * mat.densidad;
-      const pr = shell + (pc.vol - shell) * (state.infill / 100) + sop + borde;
-      interior += pc.vol - shell; // lo único que cambia con el relleno
+      const pr = (lam ? lam.volPieza[j] : shell + (pc.vol - shell) * (state.infill / 100)) + sop + borde;
+      interior += lam ? lam.ralo.reduce((a, v) => a + v, 0) * capa / pieces.length : pc.vol - shell; // lo único que cambia con el relleno
       volumen += pc.vol;
       pc.grams = (pr / 1000) * mat.densidad;
       printed += pr;
       grams += pc.grams;
       filamento += (pc.grams / 1000) * priceKg(state.mat) * (1 + pc.color.recargo);
-    }
+    });
 
-    // varios colores en la misma placa: en cada capa donde conviven, el AMS cambia de filamento
-    const colors = [...new Set(pieces.map((pc) => pc.colorIdx))];
+    // varios colores en la misma placa: en cada capa donde conviven, el AMS cambia de filamento.
+    // Los detalles pintados con pincel cuentan en las capas donde aparecen.
+    const L = Math.ceil(h / capa);
+    const pinta = [...(paint || [])].map(([c, segs]) => {
+      const on = new Uint8Array(L);
+      for (let k = 0; k < segs.length; k += 2) {
+        for (let l = Math.max(0, Math.floor(segs[k] / capa)), e = Math.min(L - 1, Math.floor(segs[k + 1] / capa)); l <= e; l++) on[l] = 1;
+      }
+      return [c, on];
+    });
+    const pieceColors = [...new Set(pieces.map((pc) => pc.colorIdx))];
+    const colors = [...new Set([...pieceColors, ...pinta.map(([c]) => c)])];
     let cambios = 0;
     if (colors.length > 1 && M.ams) {
-      const ranges = colors.map((c) => {
+      const ranges = pieceColors.map((c) => {
         const own = pieces.filter((pc) => pc.colorIdx === c);
-        return [Math.min(...own.map((pc) => pc.minY)), Math.max(...own.map((pc) => pc.maxY))];
+        return [c, Math.min(...own.map((pc) => pc.minY)), Math.max(...own.map((pc) => pc.maxY))];
       });
-      for (let l = 0, L = Math.ceil(h / capa); l < L; l++) {
-        const z = (l + 0.5) * capa;
-        const k = ranges.filter(([lo, hi]) => z >= lo && z <= hi).length;
-        if (k > 1) cambios += k - 1;
+      for (let l = 0; l < L; l++) {
+        const z = (l + 0.5) * capa, here = new Set();
+        for (const [c, lo, hi] of ranges) if (z >= lo && z <= hi) here.add(c);
+        for (const [c, on] of pinta) if (on[l]) here.add(c);
+        if (here.size > 1) cambios += here.size - 1;
       }
     }
     const purgaG = cambios * M.purga_g_por_cambio;
@@ -2259,7 +2458,8 @@
     const meters = (grams / mat.densidad) * 1000 / FIL_AREA / 1000;
     const flow = Math.min(capa * lw * noz.velocidad, P.flujo_max_mm3_s) * P.eficiencia; // mm³/s
     const layers = h / capa;
-    const hours = (printed / flow + layers * P.seg_por_capa) / 3600;
+    if (lam && window.__laminado) Object.assign(lam, { supV: pieces.reduce((a, pc) => a + pc.supVol, 0), supA: pieces.reduce((a, pc) => a + pc.supArea, 0) });
+    const hours = lam ? tiempoPlaca(lam, capa, supMm3) : (printed / flow + layers * P.seg_por_capa) / 3600;
     const color = mat.colores[pieces[0].colorIdx] || mat.colores[0];
     const kwh = hours * (C.energia.potencia_w / 1000);
     const energia = kwh * C.energia.precio_kwh;
@@ -2273,14 +2473,81 @@
     const costo = filamento + energia + maquina + manoObra + riesgo;
     const margen = costo * K.margen_ganancia;
     return { grams, meters, hours, layers, kwh, minutos, filamento, energia, maquina, manoObra, riesgo, margen,
-      precio: costo + margen, color, colors: colors.length, cambios, purgaG, first, last, pieces, interior, volumen, supG };
+      precio: costo + margen, color, colors: colors.length, cambios, purgaG, first, last, pieces, interior, volumen, supG,
+      paintColors: pinta.map(([c]) => c) };
+  }
+
+  // Laminado simulado de una placa, capa por capa y pieza por pieza: área de paredes (contorno × ancho de
+  // línea × paredes, sin pasarse del área de la sección), pisos y techos sólidos (lo que no tiene pieza
+  // encima o debajo en las capas vecinas) y relleno ralo (lo demás). Todo en mm ya escalados.
+  // parámetros del laminado para la calidad elegida (Detalle tiene su propia calibración)
+  const laminado = () => ({ ...C.laminado, ...((C.laminado.por_calidad || {})[state.calidad] || {}) });
+
+  function laminarPlaca(pieces, h) {
+    const Lm = laminado(), n = C.impresion.perimetros, lw = nozzle().d * 1.05;
+    const techo = Math.max(Lm.capas_techo, Math.ceil(Lm.techo_mm / h)), piso = Math.max(Lm.capas_piso, Math.ceil(Lm.piso_mm / h));
+    const L = Math.max(1, Math.round(Math.max(...pieces.map((pc) => pc.maxY)) / h));
+    const pared = new Float32Array(L), solido = new Float32Array(L), ralo = new Float32Array(L), contorno = new Float32Array(L), islas = new Float32Array(L), voladizo = new Float32Array(L);
+    const volPieza = pieces.map((pc) => {
+      const A = new Float32Array(L), P = new Float32Array(L), { dy, per, area, isl, cuelga } = pc.prof;
+      for (let l = 0; l < L; l++) {
+        const k = Math.floor(((l + 0.5) * h - pc.minY) / pc.sc / dy);
+        if (k < 0 || k >= per.length) continue;
+        A[l] = area[k] * pc.sc * pc.sc;
+        P[l] = per[k] * pc.sc;
+        islas[l] += isl ? isl[k] : 1;
+        voladizo[l] += cuelga ? cuelga[k] * pc.sc : 0;
+      }
+      let v = 0;
+      for (let l = 0; l < L; l++) {
+        if (!A[l]) continue;
+        const w = Math.min(A[l], P[l] * lw * n), dentro = A[l] - w;
+        let arriba = Infinity, abajo = Infinity;
+        for (let j = 1; j <= techo; j++) arriba = Math.min(arriba, l + j < L ? A[l + j] : 0);
+        for (let j = 1; j <= piso; j++) abajo = Math.min(abajo, l - j >= 0 ? A[l - j] : 0);
+        const s = Math.min(dentro, Math.max(0, A[l] - arriba, A[l] - abajo));
+        pared[l] += w;
+        solido[l] += s;
+        ralo[l] += dentro - s;
+        contorno[l] += P[l];
+        v += h * (w + s + (dentro - s) * (state.infill / 100));
+      }
+      return v * (Lm.factor_material || 1);
+    });
+    return { L, h, lw, pared, solido, ralo, contorno, islas, voladizo, volPieza };
+  }
+
+  // Tiempo de una placa: cada capa suma lo que tarda en hacer paredes, sólidos y relleno (segundos por mm
+  // de recorrido, calibrados con Bambu Studio) y nunca baja del tiempo mínimo de enfriamiento por capa
+  function tiempoPlaca(lam, h, supMm3) {
+    const Lm = laminado(), d = state.infill / 100;
+    let seg = Lm.seg_inicio + (Lm.seg_preparacion || 0) + (Lm.timelapse_seg_capa || 0) * lam.L;
+    for (let l = 0; l < lam.L; l++) {
+      const t = (Lm.s_pared * lam.pared[l] + Lm.s_solido * lam.solido[l] + Lm.s_relleno * lam.ralo[l] * d) / lam.lw
+        + Lm.s_contorno * lam.contorno[l] + Lm.s_voladizo * lam.voladizo[l] + Lm.s_isla * lam.islas[l] + Lm.seg_capa;
+      seg += Math.max(t, Lm.seg_min_capa);
+    }
+    seg += (Lm.s_soporte * supMm3) / (h * lam.lw);
+    if (window.__laminado) window.__laminado.push({ ...lam, pared: [...lam.pared], solido: [...lam.solido], ralo: [...lam.ralo], contorno: [...lam.contorno], islas: [...lam.islas], voladizo: [...lam.voladizo], supMm3, infill: state.infill, seg, supV: lam.supV, supA: lam.supA });
+    return seg / 3600;
   }
 
   // gramos de soporte que necesita la forma de estas placas (con o sin el interruptor)
   function supportNeed(parts) {
-    const S = C.soportes, d = C.materiales[state.mat].densidad;
-    const mm3 = parts.reduce((a, p) => a + p.r.pieces.reduce((b, pc) => b + pc.supVol * S.densidad + pc.supArea * S.contacto_mm, 0), 0);
-    return (mm3 / 1000) * d;
+    const mm3 = parts.reduce((a, p) => a + p.r.pieces.reduce((b, pc) => b + pc.sopNeed, 0), 0);
+    return (mm3 / 1000) * C.materiales[state.mat].densidad;
+  }
+
+  // Soporte árbol de una pieza (mm³): como en Bambu, crece con el área de pared en voladizo y con la
+  // altura a la que está (cada rama sube desde la cama). minY y sc: altura de la pieza en la placa y escala.
+  // Sin perfil de capas (placas cortadas), se usa el aire bajo los voladizos.
+  function soporteDe(pc, minY, sc) {
+    const S = C.soportes;
+    if (!pc.prof || !pc.prof.cuelga) return (pc.supVol || 0) * S.densidad + (pc.supArea || 0) * S.contacto_mm;
+    const { dy, cuelga } = pc.prof;
+    let v = 0;
+    for (let k = 0; k < cuelga.length; k++) if (cuelga[k]) v += cuelga[k] * dy * sc * sc * (S.k_area + S.k_altura * (minY + (k + 0.5) * dy * sc));
+    return v;
   }
 
   const machineHour = () => C.maquina.costo / C.maquina.vida_util_horas + C.maquina.mantenimiento_hora;
@@ -2304,8 +2571,9 @@
         vol: pc.volume * s ** 3, area: pc.area * s ** 2, minY: (pc.minY - p.minY) * s, maxY: (pc.maxY - p.minY) * s,
         supVol: (pc.supVol || 0) * s ** 3, supArea: (pc.supArea || 0) * s ** 2,
         base: pc.base ? pc.base.map((v) => v * s) : null,
+        prof: pc.prof || null, sc: s, // perfil de capas para el laminado simulado
       }));
-      return { ...p, idx: i, label: p.label || i + 1, colorIdx: plateColor(i), r: calcPart(pieces, p.h * s) };
+      return { ...p, idx: i, label: p.label || i + 1, colorIdx: plateColor(i), r: calcPart(pieces, p.h * s, state.acabado === "multi" ? platePaint(p, s) : null) };
     });
     for (const p of allParts) p.precio = roundTo(p.r.precio * q, K.redondeo);
     // placas que el cliente quitó del pedido (siempre queda al menos una)
@@ -2329,7 +2597,7 @@
     if (uniones) addExtra("ensamble", `Ensamble: ${uniones} ${uniones === 1 ? "unión" : "uniones"} (pegado y lijado)`, uniones * K.min_ensamble * q, uniones * K.insumos_ensamble * q);
     // cambios de color: dentro de cada placa (AMS) y entre placas que arrancan con otro filamento
     const M = C.multicolor;
-    const coloresUsados = new Set(parts.flatMap((p) => p.r.pieces.map((pc) => pc.colorIdx))).size;
+    const coloresUsados = new Set(parts.flatMap((p) => [...p.r.pieces.map((pc) => pc.colorIdx), ...p.r.paintColors])).size;
     const dentro = parts.reduce((a, p) => a + p.r.cambios, 0) * q;
     let entre = 0;
     if (state.acabado === "multi") for (let i = 1; i < parts.length; i++) if (parts[i].r.first !== parts[i - 1].r.last) entre++;
@@ -2485,6 +2753,7 @@
     const s = r.s, sz = state.model.size, q = state.qty;
     const split = r.allParts.length > 1;
     renderView(r.allParts, s);
+    renderPaint();
     // placas quitadas: se ven transparentes
     (viewer.partMats || []).forEach((mats, i) => mats.forEach((mt) => {
       const off = !!(r.allParts[i] && r.allParts[i].off);
@@ -2627,6 +2896,7 @@
       `• Soportes: ${state.supports ? `sí, tipo árbol (~${fmtG(supportNeed(r.parts))} por unidad)` : "no"} · Borde de adherencia: ${state.brim ? "sí" : "no"} · Cantidad: ${q}`,
       `• Entrega estimada: ${state.eta.dias} días hábiles (${fmtDay(state.eta.fecha)})`,
     ];
+    if (multi && r.parts.some((p) => p.r.paintColors.length)) lines.push("• Con detalles pintados con el pincel del visor (te envío una captura de cómo los quiero)");
     if (state.led.on) {
       const tipo = C.led.tipos.find((t) => t.id === state.led.tipo);
       lines.push(`• Letrero con LED ${tipo.nombre.toLowerCase()}: ${dec(ledMeters())} m de tira, fuente e instalación`);
@@ -2715,6 +2985,29 @@
     all.hidden = !painting;
     all.textContent = `Pintar todas las piezas de ${c.nombre}`;
     $("#color-name").textContent = (painting ? "🖌 Pincel: " : "") + c.nombre + (c.recargo ? ` · +${Math.round(c.recargo * 100)}%` : "");
+    renderBrush();
+  }
+
+  // Multicolor: pintar piezas enteras, o detalles (ojos, boca, letras) con un pincel
+  function renderBrush() {
+    const box = $("#brush-tools"), B = state.brush;
+    box.hidden = state.acabado !== "multi";
+    if (box.hidden) return;
+    const tool = (k, label) => chip(label, B.tool === k, () => { B.tool = k; renderBrush(); });
+    const size = document.createElement("label");
+    size.className = "brush-size";
+    size.hidden = B.tool === "pieza";
+    size.innerHTML = `Tamaño <input type="range" min="1" max="15" step="0.5" value="${B.mm}"> <output>${dec(B.mm * 2)} mm</output>`;
+    size.querySelector("input").oninput = (e) => { B.mm = +e.target.value; size.querySelector("output").textContent = `${dec(B.mm * 2)} mm`; };
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "chip";
+    clear.textContent = "Quitar lo pintado";
+    clear.onclick = () => { clearPaint(); update(); };
+    box.replaceChildren(tool("pieza", "👆 Pieza entera"), tool("pincel", "🖌 Pincel"), tool("borrar", "🧽 Borrar"), size, clear);
+    $("#paint-hint").textContent = B.tool === "pieza" ? "🖌 Elige un color y toca una pieza para pintarla"
+      : B.tool === "pincel" ? "🖌 Arrastra sobre la pieza para pintar detalles · fuera de ella giras la cámara"
+        : "🧽 Arrastra sobre lo pintado para borrarlo";
   }
 
   const FINISH = { uno: "Un color", multi: "Multicolor (por pieza)", pintado: "Pintado a mano" };
@@ -2936,6 +3229,12 @@
       update();
     });
     initPainting();
+    // ?vacaciones o ?mantenimiento (solo en local o en el taller): ver la pantalla sin tocar la hoja
+    if (TALLER || ["localhost", "127.0.0.1"].includes(location.hostname)) {
+      const q = new URLSearchParams(location.search);
+      if (q.has("vacaciones")) pantallaPixel("vacaciones", true);
+      else if (q.has("mantenimiento")) pantallaPixel("mantenimiento", true);
+    }
     // pedir por WhatsApp con la ficha ilustrada de la cotización
     $("#wa-btn").addEventListener("click", (e) => {
       if (!taller.recibe) { e.preventDefault(); return; }
@@ -3127,6 +3426,724 @@
     }).catch(() => {}).finally(() => { renderQueue(); if (state.model) update(); });
   }
 
+  /* ---------------- pantallas en pixel art según el estado de la hoja Taller ---------------- */
+  // "Vacaciones": tú rodando en la Himalaya. "En mantenimiento": tú reparando la impresora con el gato.
+  // Colores de tu Himalaya 411 y del equipaje: cámbialos aquí
+  const MOTO = { tanque: "#1b1c20", brillo: "#44474f", detalle: "#e8792b", sombra: "#b85a1c", chaqueta: "#3a3f4a", casco: "#16161a" };
+
+  function pantallaPixel(tipo, prueba) {
+    if (document.querySelector(".vacaciones")) return;
+    const taller_ = tipo === "mantenimiento";
+    try { if (!prueba && sessionStorage.getItem("hhh-" + tipo)) return; } catch (e) { /* sin almacenamiento: se muestra */ }
+    const box = document.createElement("div");
+    box.className = "vacaciones";
+    if (taller_) box.classList.add("es-taller"); // el cuadro de texto más arriba: la escena es más alta
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-label", taller_ ? "La impresora está en mantenimiento" : "Estamos de vacaciones");
+    const cv = document.createElement("canvas");
+    const txt = document.createElement("div");
+    txt.className = "vac-txt";
+    const l1 = document.createElement("p"), l2 = document.createElement("p"), btn = document.createElement("button");
+    l1.className = "pix";
+    l1.textContent = taller.mensaje || (taller_ ? "Le estamos haciendo mantenimiento a la impresora" : "Salimos a rodar en la Himalaya");
+    // la fecha de la celda "Imprimimos a partir de" de la hoja Taller; en la prueba, una de ejemplo a una semana
+    const ejemplo = new Date();
+    ejemplo.setDate(ejemplo.getDate() + 7);
+    const vuelta = taller.desde && diasHastaInicio() > 0 ? `Volvemos a imprimir el ${fmtDay(taller.desde)}.`
+      : prueba ? `Volvemos a imprimir el ${fmtDay(ejemplo)}.` : "Volvemos pronto.";
+    l2.textContent = `${vuelta} ${taller.recibe ? "Mientras tanto puedes cotizar y dejar tu pedido." : ""}`;
+    btn.type = "button";
+    btn.textContent = "Ver la página ▸";
+    txt.append(l1, l2, btn);
+    box.append(cv, txt);
+    document.body.append(box);
+    document.body.style.overflow = "hidden";
+
+    const g = cv.getContext("2d");
+    let W = 0, H = 0, P = 1, titulo = null, raf = 0, last = 0, dist = 0, t = 0;
+    const humo = [];
+    const resize = () => {
+      // el taller necesita más ancho (escritorio, silla y el paseo del gato)
+      P = taller_ ? Math.max(2, Math.min(Math.floor(innerHeight / 170), innerWidth / 150))
+        : Math.max(3, Math.round(Math.min(innerWidth, innerHeight * 1.7) / 240));
+      W = Math.ceil(innerWidth / P);
+      H = Math.ceil(innerHeight / P);
+      cv.width = W;
+      cv.height = H;
+      cv.style.width = W * P + "px";
+      cv.style.height = H * P + "px";
+      titulo = null;
+    };
+    resize();
+    addEventListener("resize", resize);
+    if (prueba) t = +new URLSearchParams(location.search).get(tipo) || 0;
+
+    // pixeles, líneas y discos sobre la rejilla baja
+    const R = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), w, h); };
+    const L = (x0, y0, x1, y1, c, w = 1) => {
+      g.fillStyle = c;
+      const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) || 1;
+      for (let i = 0; i <= n; i++) g.fillRect(Math.round(x0 + ((x1 - x0) * i) / n), Math.round(y0 + ((y1 - y0) * i) / n), w, w);
+    };
+    const D = (cx, cy, r, c) => {
+      g.fillStyle = c;
+      for (let y = -r; y <= r; y++) { const h = Math.floor(Math.sqrt(r * r - y * y) + 0.3); g.fillRect(Math.round(cx) - h, Math.round(cy) + y, 2 * h + 1, 1); }
+    };
+    const hsh = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+    const ns = (x) => { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return hsh(i) * (1 - u) + hsh(i + 1) * u; };
+
+    // texto con la fuente pixel, sin suavizado y con sombra
+    function crisp(text, size, color, shadow) {
+      const c = document.createElement("canvas"), x = c.getContext("2d");
+      c.width = text.length * size + 2;
+      c.height = size + 2;
+      x.font = `${size}px "Press Start 2P", monospace`;
+      x.textBaseline = "top";
+      x.fillText(text, 0, 0);
+      const src = x.getImageData(0, 0, c.width, c.height).data, out = x.createImageData(c.width, c.height);
+      const on = (i) => src[i * 4 + 3] >= 110;
+      const put = (i, hex) => { out.data.set([parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), 255], i * 4); };
+      for (let i = 0; i < c.width * c.height; i++) if (on(i)) put(i + c.width + 1, shadow);
+      for (let i = 0; i < c.width * c.height; i++) if (on(i)) put(i, color);
+      x.putImageData(out, 0, 0);
+      return c;
+    }
+
+    // letras de 3×5 para los letreros de la carretera
+    const DIG = {
+      0: ["111", "101", "101", "101", "111"], 1: ["010", "110", "010", "010", "111"], 2: ["111", "001", "111", "100", "111"],
+      3: ["111", "001", "111", "001", "111"], 4: ["101", "101", "111", "001", "001"], 5: ["111", "100", "111", "001", "111"],
+      6: ["111", "100", "111", "101", "111"], 7: ["111", "001", "010", "010", "010"], 8: ["111", "101", "111", "101", "111"],
+      9: ["111", "101", "111", "001", "111"], K: ["101", "110", "100", "110", "101"], M: ["101", "111", "111", "101", "101"],
+      I: ["111", "010", "010", "010", "111"], A: ["010", "101", "111", "101", "101"], U: ["101", "101", "101", "101", "111"], Z: ["111", "001", "010", "100", "111"], " ": ["000", "000", "000", "000", "000"],
+    };
+    const tiny = (s, x, y, c) => [...s].forEach((d, k) => DIG[d].forEach((row, j) => [...row].forEach((b, i) => b === "1" && R(x + k * 4 + i, y + j, 1, 1, c))));
+
+    // una moto con su piloto; dir 1 va a la derecha (la tuya), dir -1 viene de frente por el otro carril
+    function moto(ox, oy, o) {
+      const dir = o.dir || 1, bob = Math.floor(t * 9 + (o.fase || 0)) % 3 === 0 ? -1 : 0; // el golpe del monocilíndrico
+      const X = (x) => ox + dir * x;
+      const r = (x, y, w, h, c) => R(dir > 0 ? ox + x : ox - x - w + 1, oy + y + bob, w, h, c);
+      const l = (x0, y0, x1, y1, c, w) => L(X(x0), oy + y0 + bob, X(x1), oy + y1 + bob, c, w);
+      const rueda = (cx, cy, rad) => {
+        const a0 = dist / rad, wx = X(cx), wy = oy + cy;
+        for (let k = 0; k < 4; k++) { const a = a0 + (k * Math.PI) / 4; L(wx - Math.cos(a) * (rad - 2), wy - Math.sin(a) * (rad - 2), wx + Math.cos(a) * (rad - 2), wy + Math.sin(a) * (rad - 2), "#8d929b"); }
+        for (let k = 0; k < 72; k++) {
+          const a = (k / 72) * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);
+          R(wx + c * rad, wy + s * rad, 1, 1, "#141418");
+          R(wx + c * (rad - 1), wy + s * (rad - 1), 1, 1, "#26262c");
+          R(wx + c * (rad - 2), wy + s * (rad - 2), 1, 1, "#b8bec7");
+        }
+        R(wx - 1, wy - 1, 2, 2, "#d9dee5");
+      };
+      rueda(10, -8, 8);  // trasera 17"
+      rueda(47, -9, 9);  // delantera 21"
+      l(10, -8, 23, -12, "#2b2b30", 2);              // basculante
+      l(47, -9, 39, -33, "#2b2b30", 2);              // barras
+      l(45, -14, 41, -26, "#c9ced6", 1);
+      l(23, -12, 23, -26, "#1f1f24"); l(23, -26, 38, -33, "#1f1f24"); l(33, -14, 38, -33, "#1f1f24"); l(23, -24, 4, -27, "#1f1f24");
+      l(31, -12, 22, -10, "#b8bec7"); l(22, -10, 11, -16, "#b8bec7"); // escape
+      r(1, -19, 10, 4, "#22222a"); r(0, -18, 1, 2, "#9aa0a6");
+      r(21, -21, 11, 10, "#3a3a40");                 // motor 411
+      for (let k = 0; k < 4; k++) r(23, -20 + k * 2, 8, 1, "#6b6f78");
+      r(20, -13, 13, 4, "#8d929b"); r(20, -10, 14, 2, "#55595f");
+      r(1, -27, 8, 2, "#1f1f24"); r(0, -27, 2, 1, "#ff3b3b");
+      if (o.equipaje) {                             // maletero atrás y bolso en el puesto del parrillero
+        r(3, -29, 12, 1, "#1f1f24");
+        r(2, -38, 11, 9, "#17181c"); r(2, -38, 11, 1, "#4a4d55"); r(3, -37, 9, 1, "#2c2e35"); r(2, -33, 11, 1, "#8d929b"); r(10, -35, 2, 1, "#8d929b");
+        r(13, -34, 6, 6, "#2a2e36"); r(13, -34, 6, 1, "#3c414b"); r(15, -34, 1, 6, MOTO.detalle);
+      }
+      if (o.bandera) {                              // bandera de Venezuela con su arco de estrellas
+        l(1, -30, 1, -50, "#16161a");
+        for (let i = 0; i < 9; i++) {
+          const y = Math.round(Math.sin(t * 10 + i * 0.9) * 0.8 + i * 0.15);
+          r(0 - i, -50 + y, 1, 2, "#ffcc00"); r(0 - i, -48 + y, 1, 2, "#00247d"); r(0 - i, -46 + y, 1, 2, "#cf142b");
+          if (i % 2 === 1) r(0 - i, -48 + y + (i === 3 || i === 5 ? 1 : 0), 1, 1, "#ffffff");
+        }
+      }
+      r(13, -28, 11, 2, "#1a1a1e"); r(18, -29, 7, 1, "#1a1a1e");  // sillín
+      r(25, -32, 11, 1, o.tanque); r(24, -31, 13, 5, o.tanque); r(27, -31, 6, 1, o.brillo); r(30, -29, 3, 1, MOTO.detalle);
+      l(37, -33, 38, -23, "#1f1f24"); l(38, -23, 33, -21, "#1f1f24"); // defensas del tanque
+      l(39, -24, 50, -21, "#1f1f24", 2);            // guardabarros alto
+      r(38, -36, 5, 6, "#1f1f24");                  // farola (la luz va aparte, encima de la noche)
+      l(38, -37, 36, -45, "#9cc7ef", 2);            // parabrisas
+      r(30, -16, 4, 3, "#16161a"); r(28, -15, 3, 1, "#55595f"); // bota y estribo
+      l(31, -18, 32, -24, "#4a4e57", 2); l(21, -30, 31, -25, "#4a4e57", 3); // pierna
+      l(20, -33, 25, -43, o.chaqueta, 4); l(20, -34, 24, -42, MOTO.detalle, 1); // chaqueta
+      if (o.saluda) {                               // saludo motero: la mano arriba
+        const w = Math.round(Math.sin(t * 18 + (o.fase || 0)));
+        l(26, -41, 29 + w, -50, o.chaqueta, 2); r(29 + w, -53, 2, 3, "#16161a");
+      } else {
+        l(26, -40, 34, -38, o.chaqueta, 2); r(34, -39, 2, 2, "#16161a"); // brazo y guante
+      }
+      l(34, -38, 38, -37, "#16161a"); l(36, -38, 35, -43, "#16161a"); r(34, -44, 2, 1, "#16161a"); // manubrio y espejo
+      for (let i = 1; i <= 4; i++) r(24 - i, -44 + Math.round(Math.sin(t * 14 + i) * 0.8 + i * 0.25), 1, 1, MOTO.detalle); // bufanda
+      D(X(27), oy - 47 + bob, 4, o.casco); r(25, -50, 2, 1, "#5a5d66"); r(28, -48, 4, 2, "#2d3a4f"); r(29, -45, 3, 2, "#3a3c44"); // casco con brillo
+      l(24, -51, 32, -52, o.casco); r(23, -48, 1, 3, MOTO.detalle);
+      return { lx: X(41), ly: oy - 32 + bob, cx: X(0), cy: oy - 27 + bob, dir, gy: oy };
+    }
+
+    // ciclo del ambiente (~70 s): atardecer → noche con luna → neblina → amanece → aguacero → escampa
+    const CICLO = 70;
+    const subir = (x, a, b) => Math.min(1, Math.max(0, (x - a) / (b - a)));
+    const ambiente = () => {
+      const c = (t % CICLO) / CICLO;
+      const noche = c < 0.4 ? subir(c, 0.08, 0.22) : 1 - subir(c, 0.52, 0.66);
+      const niebla = c < 0.5 ? subir(c, 0.34, 0.44) : 1 - subir(c, 0.57, 0.68);
+      const lluvia = c < 0.85 ? subir(c, 0.72, 0.78) : 1 - subir(c, 0.93, 0.99);
+      return { noche, niebla, lluvia };
+    };
+
+    function frame() {
+      const { noche, niebla, lluvia } = ambiente();
+      const hz = Math.floor(H * 0.62);
+      const rt = hz + Math.floor((H - hz) * 0.32), rb = H - Math.floor((H - hz) * 0.14);
+      const gy = Math.round(rt + (rb - rt) * 0.62), gy2 = Math.round(rt + (rb - rt) * 0.3);
+      // cielo de atardecer por franjas, con tramado entre una y otra
+      const sky = ["#2b1b4a", "#3e1f66", "#5e2577", "#8a3274", "#c24a6c", "#e9715f", "#f7a35c"];
+      const bh = hz / sky.length;
+      sky.forEach((c, k) => {
+        R(0, k * bh, W, Math.ceil(bh), c);
+        if (k) for (let x = (k % 2); x < W; x += 2) R(x, Math.round(k * bh) - 1, 1, 1, c);
+      });
+      // sol con franjas: se esconde detrás de las montañas al anochecer
+      const sr = Math.round(Math.min(W, H) * 0.12), sx = Math.round(W * 0.82), sy = hz - Math.round(sr * 1.5) + Math.round(noche * sr * 3);
+      g.globalAlpha = 1 - lluvia * 0.9; // con aguacero el sol se pierde entre las nubes
+      for (let y = -sr; y <= sr; y++) {
+        if (y > 0 && y % 4 === 0) continue;
+        const h = Math.floor(Math.sqrt(sr * sr - y * y));
+        R(sx - h, sy + y, 2 * h + 1, 1, y < -sr / 3 ? "#ffe66d" : y < sr / 4 ? "#ffc15e" : "#ff9f43");
+      }
+      g.globalAlpha = 1;
+      // nubes
+      for (let k = 0; k < 4; k++) {
+        const cx = ((hsh(k + 9) * W * 1.6 - dist * 0.05 * (1 + k * 0.2)) % (W * 1.6) + W * 1.6) % (W * 1.6) - W * 0.3;
+        const cy = 10 + hsh(k + 3) * hz * 0.4;
+        R(cx, cy, 14, 2, "#f6c6c0"); R(cx + 3, cy - 2, 8, 2, "#f6c6c0"); R(cx + 2, cy + 2, 12, 1, "#d98fa0");
+      }
+      // nubarrones del aguacero: bajan desde arriba y tapan el cielo
+      if (lluvia > 0) {
+        g.globalAlpha = lluvia;
+        for (let x = 0; x < W; x++) {
+          const wx = x + dist * 0.12, h = (hz * 0.25 + ns(wx / 16) * hz * 0.2 + ns(wx / 5) * 4) * lluvia;
+          R(x, 0, 1, h, "#3b3a52");
+          R(x, h - 2, 1, 2, ns(wx / 16 + 0.3) > 0.5 ? "#55536f" : "#46445e");
+        }
+        g.globalAlpha = 1;
+      }
+      // Himalaya nevado al fondo
+      const o1 = dist * 0.08;
+      for (let x = 0; x < W; x++) {
+        const wx = x + o1, h = 8 + ns(wx / 20) * 34 + ns(wx / 6) * 6, top = Math.round(hz - h);
+        R(x, top, 1, hz - top, "#3b2559");
+        const nieve = h - 30; // solo los picos altos llevan nieve; la ladera derecha en sombra
+        if (nieve > 0) R(x, top, 1, Math.ceil(nieve * 0.7 + ns(wx / 3) * 2), ns(wx / 20 + 0.08) > ns(wx / 20) ? "#f1ecfa" : "#b8acd6");
+      }
+      // colinas cercanas con pinos
+      const o2 = dist * 0.25, colina = (x) => 5 + ns((x + o2) / 30) * 12;
+      for (let x = 0; x < W; x++) R(x, hz - colina(x), 1, colina(x) + 1, "#24183a");
+      for (let i = Math.floor(o2 / 9); i * 9 - o2 < W + 6; i++) {
+        if (hsh(i + 0.5) < 0.55) continue;
+        const x = i * 9 - o2, y = hz - colina(x);
+        R(x, y - 6, 1, 2, "#1a1029"); R(x - 1, y - 4, 3, 2, "#1a1029"); R(x - 2, y - 2, 5, 2, "#1a1029");
+      }
+      // tierra, carretera y orilla
+      R(0, hz, W, rt - hz, "#6e3f55");
+      const o3 = dist * 0.6;
+      for (let i = Math.floor(o3 / 5); i * 5 - o3 < W; i++) if (hsh(i) > 0.7) R(i * 5 - o3, hz + 2 + hsh(i + 7) * (rt - hz - 3), 2, 1, "#8a5568");
+      R(0, rt, W, rb - rt, "#2b2833");
+      R(0, rt, W, 1, "#d8d3e0"); R(0, rb - 1, W, 1, "#d8d3e0");
+      const mid = Math.round((rt + rb) / 2) - 2;
+      for (let x = -((dist % 18)); x < W; x += 18) R(x, mid, 10, 1, "#ffd166");
+      for (let i = Math.floor(dist / 4); i * 4 - dist < W; i++) if (hsh(i + 1.3) > 0.8) R(i * 4 - dist, rt + 2 + hsh(i + 2) * (rb - rt - 4), 1, 1, "#3a3644");
+      R(0, rb, W, H - rb, "#4a2c45");
+      // letreros con los kilómetros que llevas rodando desde que abriste la página (1 km cada 2 s)
+      const sxg = 420 - (dist % 420) + W * 0.2;
+      if (sxg < W + 30) {
+        const km = `KM ${Math.round(((Math.floor(dist / 420) + 1) * 420) / 140)}`, sw = km.length * 4 + 3;
+        R(sxg + Math.floor(sw / 2), rt - 15, 1, 15, "#9aa0a6");
+        R(sxg, rt - 22, sw, 8, "#2f7d4a"); R(sxg, rt - 22, sw, 1, "#e9f5ec"); R(sxg, rt - 15, sw, 1, "#e9f5ec");
+        tiny(km, sxg + 2, rt - 20, "#e9f5ec");
+      }
+      // los grupos que vienen de frente por el otro carril, y tu moto con su humo
+      const bx = Math.max(4, Math.round(W * 0.3) - 10);
+      const luces = [];
+      let saludo = false;
+      for (const m of motos) {
+        const cerca = Math.abs(m.x - 28 - (bx + 28)) < 70;
+        saludo = saludo || cerca;
+        luces.push(moto(Math.round(m.x), gy2, { dir: -1, tanque: m.tanque, brillo: m.tanque, chaqueta: m.chaqueta, casco: m.casco, fase: m.fase, saluda: cerca }));
+      }
+      if (Math.floor(t * 20) % 3 === 0) humo.push({ x: bx, y: gy - 17, r: 1, a: 0.6 });
+      for (const p of humo) { p.x -= 1.6; p.y -= 0.15; p.r += 0.08; p.a -= 0.012; }
+      while (humo.length && humo[0].a <= 0) humo.shift();
+      for (const p of humo) { g.globalAlpha = Math.max(0, p.a); D(p.x, p.y, Math.round(p.r), "#d9cfe6"); }
+      g.globalAlpha = 1;
+      luces.push(moto(bx, gy, { tanque: MOTO.tanque, brillo: MOTO.brillo, chaqueta: MOTO.chaqueta, casco: MOTO.casco, equipaje: true, bandera: true, saluda: saludo }));
+
+      // la noche: todo se oscurece; las estrellas, la luna y las luces quedan encima
+      if (noche > 0) {
+        g.globalAlpha = noche * 0.68;
+        R(0, 0, W, H, "#0b0822");
+        g.globalAlpha = 1;
+        // en celular el cuadro de texto ocupa el centro: la luna sale entre el título y el cuadro
+        const angosto = W < 180;
+        const mx = Math.round(W * (angosto ? 0.85 : 0.1)), my = Math.round(angosto ? H * 0.17 : hz * 0.62) - Math.round(noche * 8);
+        g.globalAlpha = noche;
+        D(mx, my, 6, "#f4f1e1"); R(mx - 2, my - 2, 2, 2, "#d6d1bd"); R(mx + 2, my + 1, 2, 1, "#d6d1bd"); R(mx - 1, my + 3, 1, 1, "#d6d1bd");
+        g.globalAlpha = 1;
+        for (const lz of luces) {
+          g.globalAlpha = noche * 0.18; // haz de la farola sobre la carretera
+          for (let d = 0; d < 50; d++) {
+            const h = 1 + d * 0.22;
+            R(lz.lx + lz.dir * (d + 3), Math.min(lz.ly - h * 0.4 + d * 0.3, lz.gy - h), 1, h * 1.3, "#fff3b0");
+          }
+          g.globalAlpha = noche;
+          R(lz.cx - (lz.dir > 0 ? 1 : 0), lz.cy, 2, 1, "#ff3b3b");
+          g.globalAlpha = 1;
+        }
+      }
+      for (const lz of luces) D(lz.lx, lz.ly, 2, "#fff3b0");
+      for (let k = 0; k < 24; k++) {
+        if (k >= 14 && noche < 0.5) continue; // de noche salen más estrellas
+        if (Math.sin(t * 3 + k * 7) > -0.3) { g.globalAlpha = Math.min(1, 0.45 + noche); R(hsh(k) * W, hsh(k + 40) * hz * (k < 14 ? 0.35 : 0.55), 1, 1, "#fff4e0"); }
+      }
+      g.globalAlpha = 1;
+
+      // neblina: franjas que se arrastran sobre las colinas y la carretera
+      if (niebla > 0) {
+        for (let k = 0; k < 6; k++) {
+          const y0 = hz - 16 + k * Math.round((rb - hz + 10) / 6), off = dist * (0.35 + k * 0.15) + k * 57;
+          g.globalAlpha = niebla * (0.28 + (k % 2) * 0.12);
+          for (let x = 0; x < W; x += 2) {
+            const d = ns((x + off) / 28 + k * 10);
+            if (d > 0.4) R(x, y0 + Math.round(ns((x + off) / 9) * 3), 2, 2 + Math.round(d * 5), "#cfc8e0");
+          }
+        }
+        g.globalAlpha = 1;
+      }
+
+      // aguacero: cielo gris, gotas inclinadas por el viento, salpicaduras y algún relámpago
+      if (lluvia > 0) {
+        g.globalAlpha = lluvia * 0.38;
+        R(0, 0, W, H, "#2a2d3e");
+        g.globalAlpha = lluvia * 0.75;
+        const gotas = Math.round((W * H) / 90);
+        for (let k = 0; k < gotas; k++) {
+          const v = 150 + hsh(k + 3) * 70;
+          const y = (hsh(k + 77) * H + t * v) % (H + 6) - 6;
+          const x = (((hsh(k) * W * 1.4 - t * v * 0.35 - (y * 0.35)) % (W * 1.4)) + W * 1.4) % (W * 1.4);
+          L(x, y, x - 1, y + 3, k % 3 ? "#a9b8d9" : "#d3dcf0");
+        }
+        for (let k = 0; k < 26; k++) {
+          const f = t * 3 + hsh(k), n = Math.floor(f);
+          if (f - n > 0.35) continue;
+          const x = hsh(k * 13 + n) * W, y = rt + 2 + hsh(k * 7 + n) * (rb - rt - 4);
+          R(x - 1, y - 1, 1, 1, "#c7d2ea"); R(x + 1, y - 1, 1, 1, "#c7d2ea"); R(x, y, 1, 1, "#c7d2ea");
+        }
+        if (lluvia > 0.9 && Math.sin(t * 1.3) > 0.985) { g.globalAlpha = 0.45; R(0, 0, W, H, "#f4f1ff"); }
+        g.globalAlpha = 1;
+        for (const lz of luces) if (noche < 0.5) D(lz.lx, lz.ly, 1, "#fff3b0"); // de día con lluvia también se prende la farola
+      }
+
+      dibujarTitulo();
+    }
+
+    // título con las letras ondulando
+    function dibujarTitulo() {
+      const texto = taller_ ? "MANTENIMIENTO" : "VACACIONES";
+      const fs = W >= texto.length * 16 + 16 ? 16 : 8;
+      if (!titulo) titulo = crisp(texto, fs, "#ffd166", "#a23a72");
+      const tx = Math.round((W - titulo.width) / 2), ty = Math.round(H * 0.08);
+      for (let k = 0; k < texto.length; k++) {
+        const dy = Math.round(Math.sin(t * 4 + k * 0.6) * (fs / 8) * 1.5);
+        g.drawImage(titulo, k * fs, 0, fs + 1, titulo.height, tx + k * fs, ty + dy, fs + 1, titulo.height);
+      }
+    }
+
+    // ---- mantenimiento: tú sentado en el escritorio reparando la A1, con la lámpara y el gato ----
+    const GATO = "#141416", BLANCO = "#f1eee6", PIEL = "#c58c63", PELO = "#1a1414";
+    // el gato negro con blanco: una pose por momento (dir 1 mira a la derecha)
+    function gato(ox, oy, pose, dir, paso) {
+      const r = (x, y, w, h, c) => R(dir > 0 ? ox + x : ox - x - w + 1, oy + y, w, h, c);
+      const ojo = (x, y) => r(x, y, 1, 1, "#9be15d");
+      if (pose === "duerme") {
+        const resp = Math.sin(t * 2) > 0 ? 0 : 1; // respira
+        r(-6, -5 + resp, 12, 5 - resp, GATO); r(-5, -6 + resp, 10, 1, GATO);
+        r(2, -8 + resp, 5, 4, GATO); r(2, -9 + resp, 1, 1, GATO); r(5, -9 + resp, 1, 1, GATO);
+        r(4, -6 + resp, 2, 1, "#5a5a60"); r(5, -5 + resp, 2, 1, BLANCO);
+        r(-7, -1, 12, 1, GATO); r(3, -1, 3, 1, BLANCO);
+        return;
+      }
+      if (["sienta", "maulla", "pata", "lava", "mira", "mimos"].includes(pose)) {
+        r(-3, -10, 7, 10, GATO); r(1, -9, 2, 7, BLANCO);           // cuerpo sentado y pecho blanco
+        const cola = pose === "mira" ? Math.round(Math.sin(t * 9) * 2) : 0; // al cazar mueve la punta de la cola
+        r(-8, -1, 6, 1, GATO); r(-8 + cola, -3, 1, 2, GATO);       // cola en el piso
+        const p = pose === "pata" && Math.sin(t * 10) > 0 ? -3 : 0; // pata que molesta
+        r(2, -1 + p, 2, 1, BLANCO); r(4, -1, 1, 1, BLANCO);
+        const arriba = pose === "mira" ? -1 : 0;                   // mirando la polilla
+        r(-1, -15 + arriba, 6, 5, GATO); r(-1, -16 + arriba, 1, 1, GATO); r(3, -16 + arriba, 1, 1, GATO);
+        r(3, -12 + arriba, 2, 2, BLANCO);
+        if (pose === "mimos") r(2, -14, 2, 1, "#5a5a60"); else ojo(3, -14 + arriba * 2); // con mimos cierra los ojos
+        if (pose === "maulla" && Math.sin(t * 6) > 0) r(4, -11, 1, 1, "#e46f8a");
+        if (pose === "lava" && Math.sin(t * 8) > 0) { r(3, -11, 1, 3, BLANCO); r(4, -11, 1, 1, "#e46f8a"); } // se lame la pata
+        return;
+      }
+      if (pose === "estira") {                                      // patas delanteras estiradas, cola arriba
+        r(-6, -7, 6, 4, GATO); r(0, -5, 6, 3, GATO); r(6, -3, 3, 1, BLANCO); r(-6, -3, 1, 3, GATO); r(-3, -3, 1, 3, GATO);
+        r(-5, 0, 1, 0, GATO); r(-6, -12, 1, 5, GATO);
+        r(5, -8, 5, 5, GATO); r(5, -9, 1, 1, GATO); r(8, -9, 1, 1, GATO); r(8, -5, 2, 2, BLANCO); r(8, -7, 1, 1, "#5a5a60");
+        return;
+      }
+      // camina, come o salta
+      const sube = pose === "salta" ? -2 : 0;
+      r(-6, -8 + sube, 12, 5, GATO); r(3, -7 + sube, 3, 4, BLANCO); r(-3, -3 + sube, 5, 1, "#2a2a2e");
+      const f = pose === "camina" || pose === "frota" ? Math.floor(paso * 6) % 2 : 0;
+      const pierna = (x, alt) => { r(x, -3 + sube, 1, pose === "salta" ? 2 : 3, GATO); r(x + (pose === "salta" ? alt : 0), -1 + sube, 1, 1, BLANCO); };
+      pierna(-5 + f, -2); pierna(-3 - f, -2); pierna(3 + f, 2); pierna(5 - f, 2);
+      r(-7, -12 + sube, 1, 5, GATO); r(-8, -13 + sube, 1, 2, GATO);  // cola parada
+      const cab = pose === "come" ? 4 : 0;                           // al comer baja la cabeza al plato
+      r(5, -12 + sube + cab, 5, 5, GATO); r(5, -13 + sube + cab, 1, 1, GATO); r(8, -13 + sube + cab, 1, 1, GATO);
+      r(8, -9 + sube + cab, 2, 2, BLANCO); if (!cab) ojo(8, -11 + sube);
+    }
+
+    // recorrido del gato (s): entra, pide comida, come, se lava, se frota en tu pierna, se sube al escritorio,
+    // tumba el tornillo, caza una polilla, se sienta a tu lado (y lo consientes), duerme encima de la impresora,
+    // salta a la repisa, tumba los rollos de filamento y se va
+    const RUTA = [
+      [0, 5, "entra", 0, 32, 0, "camina", 1],
+      [5, 8.5, 32, 0, 32, 0, "maulla", 1],
+      [8.5, 13, 32, 0, 32, 0, "come", 1],
+      [13, 16, 32, 0, 32, 0, "lava", 1],
+      [16, 17, 32, 0, 58, 0, "camina", 1],
+      [17, 20, 58, 0, 58, 0, "frota", 1],
+      [20, 22.4, 58, 0, 130, 0, "camina", 1],
+      [22.4, 23, 130, 0, 130, -34, "salta", 1],
+      [23, 24.4, 130, -34, 128, -34, "camina", -1],
+      [24.4, 27, 128, -34, 128, -34, "pata", -1],
+      [27, 31, 128, -34, 128, -34, "mira", -1],
+      [31, 31.6, 128, -34, 128, -34, "caza", -1],
+      [31.6, 33, 128, -34, 106, -34, "camina", -1],
+      [33, 40, 106, -34, 106, -34, "mimos", -1],
+      [40, 40.8, 106, -34, 82, -90, "salta", -1],
+      [40.8, 42, 82, -90, 82, -90, "sienta", -1],
+      [42, 56, 82, -90, 82, -90, "duerme", -1],
+      [56, 58, 82, -90, 82, -90, "estira", -1],
+      [58, 58.6, 82, -90, 36, -80, "salta", -1],
+      [58.6, 64, 36, -80, -4, -80, "camina", -1],
+      [64, 64.6, -4, -80, -14, 0, "salta", -1],
+      [64.6, 68, -14, 0, "entra", 0, "camina", -1],
+    ];
+    const CORAZON = ["01010", "11111", "01110", "00100"];
+    const corazones = (x, y, desde) => {
+      for (let k = 0; k < 3; k++) {
+        const p = ((t - desde) * 0.6 + k / 3) % 1;
+        g.globalAlpha = 1 - p;
+        CORAZON.forEach((row, j) => [...row].forEach((b, i) => b === "1" && R(x + i + Math.round(Math.sin(p * 7 + k) * 2) + k * 4 - 4, y + j - Math.round(p * 14), 1, 1, "#ff6b8a")));
+      }
+      g.globalAlpha = 1;
+    };
+
+    // lo que haces tú, sentado de espaldas frente a la A1; al final te levantas a recoger lo que tumbó el gato
+    const PIEL2 = "#a87452", PELO2 = "#33272a";
+    const CAMISA = "#26282e", CAMISA_L = "#363945", CAMISA_D = "#1a1b20";
+    const JEAN = "#2f3e5c", JEAN_D = "#25324b", JEAN_L = "#3d5078";
+    const SILLA = "#2c2c33", SILLA_L = "#45454f", MALLA = "#222228";
+    const ROLLOS = ["#e8792b", "#eeeef2", "#3b82f6", "#3ddc84"];
+    const ACT = [[0, 6.4, "repara"], [6.4, 8.6, "dando"], [8.6, 12.6, "cafe"], [12.6, 17, "mueve"], [17, 20, "mira"],
+      [20, 26, "limpia"], [26, 33.4, "repara"], [33.4, 40, "mimos"], [40, 46, "mueve"], [46, 50, "cafe"], [50, 58.8, "repara"], [58.8, 68, "voltea"]];
+    const SX = (k) => 1 + k * 10;   // rollos en la repisa
+    const RESTO = [-18, 6, 26, 54];  // dónde quedan en el piso
+    const CAE = [0, 1, 2, 3].map((k) => 58.6 + (36 - (SX(k) + 3)) / (40 / 5.4));
+    const PLAN = (() => {
+      const out = [{ t0: 68, t1: 69, x0: 75, x1: 75, act: "levanta" }];
+      let tt = 69, x = 75;
+      for (const [nx, que] of [[54, "s3"], [26, "s2"], [6, "s1"], [-18, "s0"], [16, "repisa"], [120, "tornillo"], [124, "mesa"], [75, "silla"]]) {
+        const d = Math.abs(nx - x) / 25;
+        out.push({ t0: tt, t1: tt + d, x0: x, x1: nx, act: "camina" });
+        tt += d;
+        const dur = que === "repisa" ? 2.2 : que === "silla" ? 0.6 : 0.8;
+        out.push({ t0: tt, t1: tt + dur, x0: nx, x1: nx, act: que === "repisa" ? "alza" : que === "mesa" ? "mesa" : que === "silla" ? "levanta" : "agacha", que });
+        tt += dur;
+        x = nx;
+      }
+      return out;
+    })();
+    const paso = (que) => PLAN.find((p) => p.que === que);
+    const CICLO_GATO = Math.ceil(PLAN[PLAN.length - 1].t1) + 1;
+    const mezcla = (a, b, u) => a + (b - a) * u;
+
+    // un rollo: en la repisa, cayendo y rodando, en el piso, en tu brazo (null) o de vuelta en la repisa
+    function rollo(k, c) {
+      const sx = SX(k), rest = RESTO[k], rec = paso("s" + k).t0 + 0.5, pone = paso("repisa").t0 + 0.4 + k * 0.4;
+      if (c < CAE[k] || c >= pone) return { x: sx, y: -85 };
+      if (c >= rec) return null;
+      const d = c - CAE[k];
+      if (d < 0.45) { const u = d / 0.45; return { x: sx + (rest - sx) * 0.3 * u, y: -85 + u * u * 81 }; }
+      if (d < 1.3) { const u = (d - 0.45) / 0.85; return { x: sx + (rest - sx) * (0.3 + 0.7 * u), y: -4 - (u < 0.25 ? Math.sin((u / 0.25) * Math.PI) * 3 : 0) }; }
+      return { x: rest, y: -4 };
+    }
+
+    function frameTaller() {
+      const fy = Math.round(H * 0.95), ox = Math.round(W / 2 - 68), c = t % CICLO_GATO;
+      const r = (x, y, w, h, col) => R(ox + x, fy + y, w, h, col);
+      const l = (x0, y0, x1, y1, col, w) => L(ox + x0, fy + y0, ox + x1, fy + y1, col, w);
+      const dibujaRollo = (x, y, k) => {
+        D(ox + x, fy + y, 4, ROLLOS[k]); D(ox + x, fy + y, 1, "#2a2a2e");
+        const a = x * 0.6;
+        R(ox + x + Math.round(Math.cos(a) * 3), fy + y + Math.round(Math.sin(a) * 3), 1, 1, "#2a2a2e");
+        R(ox + x - 2, fy + y - 3, 2, 1, "rgba(255,255,255,.45)");
+      };
+      const taza = (x, y) => {
+        r(x, y, 5, 6, "#e9e4f5"); r(x + 4, y, 1, 6, "#c9c2d9"); r(x + 5, y + 1, 1, 3, "#e9e4f5"); r(x + 1, y, 3, 1, "#3d2516");
+      };
+      // brazo desde el hombro hasta la mano: manga negra, antebrazo con sombra y la mano
+      const brazo = ([sx, sy], [hx, hy]) => {
+        const mx = sx + (hx - sx) * 0.3, my = sy + (hy - sy) * 0.3;
+        l(sx - 1, sy - 1, mx - 1, my - 1, CAMISA, 3);
+        l(mx, my, hx, hy, PIEL, 2);
+        l(mx + 1, my + 1, hx, hy + 1, PIEL2, 1);
+        r(hx - 1, hy - 1, 3, 3, PIEL); r(hx - 1, hy + 1, 3, 1, PIEL2);
+      };
+      // cabeza de espaldas: pelo con brillos, nuca rebajada y orejas; al voltear se asoma la mejilla
+      const cabeza = (cx, cy, giro) => {
+        r(cx - 3, cy + 4, 6, 3, PIEL); r(cx - 3, cy + 6, 6, 1, PIEL2);
+        D(ox + cx + giro, fy + cy, 6, PELO);
+        r(cx + giro - 3, cy - 5, 4, 1, PELO2); r(cx + giro - 5, cy - 3, 2, 1, PELO2); r(cx + giro + 1, cy - 4, 3, 1, PELO2); r(cx + giro + 4, cy - 1, 1, 2, PELO2);
+        for (let i = -4; i <= 3; i++) r(cx + giro + i, cy + 6, 1, 1, i % 2 ? PIEL : PELO);
+        r(cx + giro - 7, cy - 1, 1, 3, PIEL); r(cx + giro + 6, cy - 1, 1, 3, PIEL);
+        if (giro < 0) { r(cx + giro - 7, cy - 2, 2, 5, PIEL); r(cx + giro - 7, cy + 2, 2, 1, PIEL2); }
+        if (giro > 0) { r(cx + giro + 5, cy - 2, 2, 5, PIEL); r(cx + giro + 5, cy + 2, 2, 1, PIEL2); }
+      };
+      const sillaBase = (px) => {
+        r(px - 9, -5, 18, 1, SILLA); l(px - 1, -5, px - 9, -3, SILLA); l(px, -5, px + 9, -3, SILLA);
+        r(px - 10, -3, 3, 2, "#111114"); r(px - 1, -3, 3, 2, "#111114"); r(px + 8, -3, 3, 2, "#111114");
+        r(px - 1, -20, 2, 15, "#6b6f78"); r(px - 1, -20, 1, 15, "#8d929b"); r(px - 2, -12, 4, 3, SILLA);
+        r(px - 11, -23, 22, 3, SILLA); r(px - 11, -23, 22, 1, SILLA_L);
+      };
+      const espaldar = (px) => {
+        r(px - 8, -47, 16, 1, SILLA); r(px - 9, -46, 18, 24, SILLA);
+        for (let y = -44; y < -24; y += 2) r(px - 7, y, 14, 1, MALLA);
+        r(px - 9, -46, 1, 24, SILLA_L); r(px - 8, -47, 16, 1, SILLA_L); r(px - 7, -32, 14, 2, SILLA_L);
+      };
+      const espalda = (px, y0) => {
+        r(px - 9, y0, 18, 1, CAMISA); r(px - 10, y0 + 1, 20, 16, CAMISA);
+        r(px - 9, y0 + 1, 6, 1, CAMISA_L); r(px + 4, y0 + 1, 5, 1, CAMISA_L); r(px - 3, y0, 6, 1, CAMISA_D);
+        r(px - 1, y0 + 3, 1, 13, CAMISA_D); r(px - 6, y0 + 5, 3, 1, CAMISA_D); r(px + 4, y0 + 5, 3, 1, CAMISA_D);
+        r(px - 10, y0 + 3, 1, 13, CAMISA_D); r(px + 9, y0 + 3, 1, 13, CAMISA_D);
+        r(px - 2, y0 + 6, 4, 1, "#e8792b"); r(px - 3, y0 + 7, 6, 2, "#e8792b"); r(px - 1, y0 + 7, 3, 1, "#16161a"); // casquito estampado
+      };
+
+      // pared, ventana de noche, repisa con rollos y piso de madera
+      R(0, 0, W, fy, "#2b2540");
+      for (let x = 0; x < W; x += 8) R(x, 0, 1, fy, "#302a47");
+      r(-62, -98, 28, 34, "#4a3a2c"); r(-60, -96, 24, 30, "#162040");
+      for (let k = 0; k < 5; k++) if (Math.sin(t * 2 + k * 3) > -0.4) r(-58 + hsh(k) * 20, -94 + hsh(k + 9) * 24, 1, 1, "#fff4e0");
+      D(ox - 42, fy - 90, 3, "#f4f1e1"); r(-60, -82, 24, 1, "#4a3a2c"); r(-48, -96, 1, 30, "#4a3a2c");
+      r(-6, -80, 44, 2, "#6b4a35"); r(-6, -80, 44, 1, "#7f5a41"); r(-4, -78, 1, 4, "#4a3426"); r(35, -78, 1, 4, "#4a3426");
+      R(0, fy, W, H - fy, "#3d2b22");
+      for (let y = fy + 3; y < H; y += 4) R(0, y, W, 1, "#33241c");
+      r(-200, -3, 420, 3, "#241d33");
+      // escritorio con cajón
+      r(14, -34, 130, 3, "#8a5a3b"); r(14, -34, 130, 1, "#a8714c"); r(14, -31, 130, 1, "#6b4530");
+      r(16, -31, 3, 31, "#6b4530"); r(139, -31, 3, 31, "#6b4530"); r(20, -31, 24, 6, "#7a4f34"); r(31, -28, 2, 1, "#c9a66b");
+
+      // lo que haces ahora
+      const act = ACT.find((a) => c >= a[0] && c < a[1]);
+      const que = act ? act[2] : "orden", u = act ? (c - act[0]) / (act[1] - act[0]) : 0;
+      // Bambu A1: base, cama PEI, marco y el eje X con el cabezal (lo mueves a mano)
+      let tx = 75, gy = -74;
+      if (que === "mueve") { tx = 75 + Math.sin(u * Math.PI * 4) * 14; gy = -74 + Math.sin(u * Math.PI * 2) * 7; }
+      r(52, -40, 46, 6, "#d9dce1"); r(52, -40, 46, 1, "#eef0f3"); r(52, -35, 46, 1, "#b8bcc4");
+      r(56, -39, 7, 4, "#1f2127"); r(57, -38, 3, 1, "#3b82f6"); r(61, -38, 1, 1, "#3ddc84");
+      r(56, -43, 38, 3, "#2a2c33"); for (let x = 58; x < 94; x += 4) r(x, -43, 1, 1, "#3a3d46");
+      r(53, -88, 2, 48, "#c7cbd2"); r(95, -88, 2, 48, "#c7cbd2"); r(53, -88, 1, 48, "#e3e6ea"); r(95, -88, 1, 48, "#e3e6ea");
+      r(53, -90, 44, 2, "#c7cbd2"); r(53, -90, 44, 1, "#e3e6ea");
+      r(55, gy, 40, 2, "#8d929b"); r(55, gy, 40, 1, "#a8adb5");
+      l(Math.round(tx) + 3, gy - 6, 92, -88, "#e8792b");
+      r(tx - 4, gy - 6, 8, 10, "#e9ebef"); r(tx - 4, gy - 6, 1, 10, "#ffffff"); r(tx + 3, gy - 6, 1, 10, "#c9ccd2");
+      r(tx - 2, gy - 4, 4, 3, "#2a2c33"); r(tx - 1, gy + 4, 2, 2, "#ff8a3d");
+      // lámpara articulada y su luz
+      r(132, -36, 9, 2, "#1f1f24"); r(134, -38, 5, 2, "#1f1f24");
+      l(136, -38, 128, -62, "#1f1f24", 2); l(128, -62, 110, -74, "#1f1f24", 2);
+      r(100, -76, 11, 3, "#1f1f24"); r(101, -73, 9, 2, "#2c2c33"); r(103, -71, 5, 1, "#fff3b0");
+      g.globalAlpha = 0.12;
+      for (let y = -70; y < -34; y++) { const k = (y + 70) / 36, w = 8 + k * 60; r(105 - k * 8 - w / 2, y, w, 1, "#ffe7a3"); }
+      g.globalAlpha = 1;
+      // atomizador de alcohol, el trapo y el tinto
+      r(114, -44, 3, 10, "#4aa3df"); r(114, -46, 2, 2, "#e9e4f5"); r(116, -46, 2, 1, "#e9e4f5"); r(114, -40, 3, 2, "#ffffff");
+      if (que !== "limpia") { r(40, -36, 6, 2, "#4aa3df"); r(40, -36, 6, 1, "#6cbcf0"); }
+      let manoTaza = null;
+      if (que === "cafe") {
+        const reposo = [87, -38], mesa = [109, -41], boca = [77, -62];
+        const ir = (p, q, v) => [mezcla(p[0], q[0], v), mezcla(p[1], q[1], v)];
+        manoTaza = u < 0.2 ? ir(reposo, mesa, u / 0.2) : u < 0.35 ? ir(mesa, boca, (u - 0.2) / 0.15) : u < 0.7 ? boca
+          : u < 0.85 ? ir(boca, mesa, (u - 0.7) / 0.15) : ir(mesa, reposo, (u - 0.85) / 0.15);
+      }
+      const tazaEnMano = que === "cafe" && u >= 0.2 && u < 0.85;
+      if (!tazaEnMano) {
+        taza(107, -40);
+        g.globalAlpha = 0.5;
+        for (let k = 0; k < 3; k++) { const p = (t * 0.8 + k / 3) % 1; r(109 + Math.round(Math.sin(p * 9 + k) * 1.5), -42 - p * 9, 1, 1, "#e9e4f5"); }
+        g.globalAlpha = 1;
+      }
+      // el plato del gato
+      r(40, -3, 8, 3, "#c0392b"); r(39, -3, 10, 1, "#e05a4a");
+      if (c > 7.8 && c < 13) r(41, -4, 6, 1, "#8a5a3b");
+      // el tornillo: lo tumba el gato y lo recoges al final
+      const tRec = paso("tornillo").t0 + 0.5, tMesa = paso("mesa").t0 + 0.4;
+      let tz = null;
+      if (c < 25.4 || c >= tMesa) tz = [124, -35];
+      else if (c < 25.9) tz = [124 - (c - 25.4) * 8, -35];
+      else if (c < 26.4) tz = [120, -35 + ((c - 25.9) / 0.5) ** 2 * 34];
+      else if (c < tRec) tz = [120, -1];
+      if (tz) r(tz[0], tz[1], 2, 1, "#c9ced6");
+      // rollos de filamento: en la repisa, cayendo o en el piso
+      for (let k = 0; k < 4; k++) { const p = rollo(k, c); if (p) dibujaRollo(Math.round(p.x), Math.round(p.y), k); }
+      // la polilla de la lámpara
+      if (c > 26 && c < 33) {
+        const huye = Math.max(0, c - 31.3);
+        const mx = 104 + Math.sin(c * 7) * 6 - huye * 30, my = -64 + Math.cos(c * 9) * 4 - huye * 30;
+        const ala = Math.sin(t * 30) > 0 ? 1 : 0;
+        r(mx, my, 1, 1, "#8d8778"); r(mx - 1, my - ala, 1, 1, "#c9c2ae"); r(mx + 1, my - ala, 1, 1, "#c9c2ae");
+      }
+
+      if (que !== "orden") {
+        // sentado de espaldas, de frente a la impresora
+        const px = 75;
+        sillaBase(px);
+        r(px - 7, -8, 4, 3, "#3a3a40"); r(px + 3, -8, 4, 3, "#3a3a40"); r(px - 7, -6, 4, 1, "#2a2a30"); r(px + 3, -6, 4, 1, "#2a2a30"); // suelas
+        espalda(px, -57);
+        espaldar(px);
+        let izq = [px - 13, -38], der = [px + 12, -38], giro = 0;
+        if (que === "repara") { const j = Math.round(Math.sin(t * 12)); der = [Math.round(tx) + 2 + j, gy + 1]; izq = [56, -60]; }
+        if (que === "mueve") { der = [Math.round(tx) + 4, gy]; izq = [Math.round(tx) - 5, gy]; }
+        if (que === "limpia") der = [Math.round(75 + Math.sin(t * 6) * 13), -45];
+        if (que === "dando") { izq = [px - 32, -27]; giro = -1; }
+        if (que === "mira" || que === "voltea") giro = -1;
+        if (que === "mimos") { der = [104 + Math.round(Math.sin(t * 5) * 2), -51]; giro = 1; }
+        if (manoTaza) der = manoTaza.map(Math.round);
+        brazo([px - 9, -54], izq);
+        brazo([px + 8, -54], der);
+        if (que === "repara") { r(der[0] + 1, der[1] - 2, 2, 2, "#e8b33f"); l(der[0] + 2, der[1] - 3, der[0] + 4, der[1] - 6, "#9aa0a6"); if (Math.sin(t * 5) > 0.92) r(der[0] + 5, der[1] - 7, 1, 1, "#fff3b0"); }
+        if (que === "limpia") { r(der[0] - 3, der[1] - 1, 6, 3, "#4aa3df"); r(der[0] - 3, der[1] - 1, 6, 1, "#6cbcf0"); if (Math.sin(t * 9) > 0.7) r(der[0] + 5, -45, 1, 1, "#ffffff"); }
+        if (que === "dando") {
+          r(izq[0] - 2, izq[1] - 2, 4, 5, "#d9c27a"); r(izq[0] - 2, izq[1] - 2, 4, 1, "#b89c52");
+          for (let k = 0; k < 4; k++) { const p = (c * 2 + k / 4) % 1; r(izq[0], izq[1] + 3 + p * 20, 1, 1, "#8a5a3b"); }
+        }
+        if (tazaEnMano) taza(der[0] - 2, der[1] - 3);
+        cabeza(px, -65, giro);
+      } else {
+        // te levantas a recoger lo que tumbó el gato
+        const p = PLAN.find((s) => c >= s.t0 && c < s.t1) || PLAN[PLAN.length - 1];
+        const v = (c - p.t0) / (p.t1 - p.t0), px = Math.round(mezcla(p.x0, p.x1, v));
+        const agacha = p.act === "agacha" && v > 0.15 && v < 0.85;
+        const f = p.act === "camina" ? Math.floor(t * 8) % 2 : 0, b = agacha ? 14 : 0;
+        if (agacha) {
+          r(px - 7, -14, 5, 11, JEAN); r(px + 2, -14, 5, 11, JEAN); r(px - 7, -14, 1, 11, JEAN_L); r(px + 6, -14, 1, 11, JEAN_D);
+          r(px - 8, -3, 5, 3, "#16161a"); r(px + 3, -3, 5, 3, "#16161a");
+        } else {
+          r(px - 7, -30, 6, 27 - f * 2, JEAN); r(px + 1, -30, 6, 27 - (1 - f) * 2, JEAN); r(px - 7, -30, 1, 25, JEAN_L); r(px + 6, -30, 1, 25, JEAN_D);
+          r(px - 1, -30, 2, 4, JEAN_D); r(px - 8, -3 - f * 2, 7, 3, "#16161a"); r(px + 1, -3 - (1 - f) * 2, 7, 3, "#16161a");
+        }
+        espalda(px, -57 + b);
+        r(px - 9, -41 + b, 18, 10, CAMISA); r(px - 9, -41 + b, 1, 10, CAMISA_D); r(px + 8, -41 + b, 1, 10, CAMISA_D); r(px - 1, -41 + b, 1, 8, CAMISA_D);
+        r(px - 8, -31 + b, 16, 2, "#3b2a22"); r(px - 1, -31 + b, 2, 2, "#c9a66b"); // cinturón con hebilla
+        let der = [px + 11, -38 + b];
+        if (agacha) der = [px + 10, -4];
+        if (p.act === "alza") der = [px + 7, -84];
+        if (p.act === "mesa") der = [px + 9, -38];
+        brazo([px - 9, -54 + b], [px - 12, -38 + b]);
+        brazo([px + 8, -54 + b], der);
+        const llevo = [0, 1, 2, 3].filter((k) => c >= paso("s" + k).t0 + 0.5 && c < paso("repisa").t0 + 0.4 + k * 0.4);
+        llevo.forEach((k, j) => dibujaRollo(px - 14, -36 + b - j * 8, k));
+        if (c >= tRec && c < tMesa) r(der[0], der[1] - 2, 2, 1, "#c9ced6");
+        cabeza(px, -65 + b, 0);
+        sillaBase(75);
+        espaldar(75);
+      }
+
+      // el gato en su recorrido
+      const seg = RUTA.find((sg) => c >= sg[0] && c < sg[1]);
+      if (seg) {
+        const [t0, t1, x0, y0, x1, y1, pose, dir] = seg, uu = (c - t0) / (t1 - t0);
+        const lado = (v) => (v === "entra" ? -ox - 15 : v === "sale" ? W - ox + 15 : v);
+        const a = lado(x0), b = lado(x1);
+        // al frotarse va y viene contra tu pierna; al cazar salta alto y vuelve al mismo sitio
+        const x = a + (b - a) * uu + (pose === "frota" ? Math.sin(c * 3) * 5 : 0);
+        const y = y0 + (y1 - y0) * uu - (pose === "salta" ? Math.sin(Math.PI * uu) * 12 : pose === "caza" ? Math.sin(Math.PI * uu) * 18 : 0);
+        const vuelta = pose === "frota" ? (Math.cos(c * 3) > 0 ? 1 : -1) : dir;
+        gato(ox + Math.round(x), fy + Math.round(y), pose === "caza" ? "salta" : pose === "frota" ? "camina" : pose, vuelta, c);
+        if (pose === "frota") corazones(ox + Math.round(x), fy + Math.round(y) - 18, t0);
+        if (pose === "mimos" && c > 33.6) corazones(ox + Math.round(x), fy + Math.round(y) - 24, t0);
+        const globo = (texto, gx, gy2) => {
+          const w = texto.length * 4 + 3;
+          R(gx, gy2, w, 9, "#fff4e0"); R(gx + 1, gy2 + 9, 2, 1, "#fff4e0"); R(gx, gy2 + 10, 1, 1, "#fff4e0");
+          tiny(texto, gx + 2, gy2 + 2, "#2b1b4a");
+        };
+        if (pose === "maulla" && c < 8) {
+          globo("MIAU", ox + Math.round(x) + 2, fy + Math.round(y) - 28);
+          const fx = ox + Math.round(x) + 22, fyy = fy + Math.round(y) - 25; // el pescadito que quiere
+          R(fx, fyy, 5, 3, "#7ec8e3"); R(fx + 5, fyy - 1, 1, 5, "#7ec8e3"); R(fx + 1, fyy + 1, 1, 1, "#2b1b4a");
+        }
+        if (pose === "duerme") {
+          for (let k = 0; k < 3; k++) {
+            const p = (c * 0.5 + k / 3) % 1;
+            g.globalAlpha = 1 - p;
+            tiny("Z", ox + Math.round(x) + 4 + Math.round(p * 8 + Math.sin(p * 6) * 2), fy + Math.round(y) - 12 - Math.round(p * 16), "#fff4e0");
+          }
+          g.globalAlpha = 1;
+        }
+      }
+      dibujarTitulo();
+    }
+
+    // grupos de 2 a 4 motos que vienen de frente cada tanto
+    const motos = [];
+    let proximo = 3;
+    const TANQUES = ["#c0392b", "#2c3e50", "#f1c40f", "#ecf0f1", "#16a085", "#8e44ad", "#d35400"];
+    const CHAQUETAS = ["#1f2a44", "#7a1f1f", "#2e4a2e", "#3a3f4a", "#5b4636"];
+    const CASCOS = ["#eeeef2", "#16161a", "#e74c3c", "#f1c40f", "#3498db"];
+    function grupos(dt) {
+      for (const m of motos) m.x -= dt * 110;
+      while (motos.length && motos[0].x < -20) motos.shift();
+      if (t < proximo) return;
+      const n = 2 + Math.floor(Math.random() * 3), pick = (a) => a[Math.floor(Math.random() * a.length)];
+      for (let k = 0; k < n; k++) {
+        motos.push({ x: W + 70 + k * 68, tanque: pick(TANQUES), chaqueta: pick(CHAQUETAS), casco: pick(CASCOS), fase: Math.random() * 3 });
+      }
+      proximo = t + 8 + Math.random() * 6;
+    }
+
+    const quieto = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const loop = (now) => {
+      raf = requestAnimationFrame(loop);
+      if (now - last < 40) return; // ~25 cuadros por segundo: se siente retro
+      const dt = Math.min(0.1, (now - (last || now)) / 1000);
+      last = now;
+      t += dt;
+      dist += dt * 70;
+      if (taller_) frameTaller();
+      else { grupos(dt); frame(); }
+    };
+    document.fonts.load('16px "Press Start 2P"').finally(() => { titulo = null; if (quieto) (taller_ ? frameTaller : frame)(); });
+    if (quieto) (taller_ ? frameTaller : frame)(); else raf = requestAnimationFrame(loop);
+
+    const close = () => {
+      cancelAnimationFrame(raf);
+      removeEventListener("resize", resize);
+      removeEventListener("keydown", esc);
+      try { sessionStorage.setItem("hhh-" + tipo, "1"); } catch (e) { /* nada */ }
+      document.body.style.overflow = "";
+      box.classList.add("bye");
+      setTimeout(() => box.remove(), 400);
+    };
+    const esc = (e) => { if (e.key === "Escape") close(); };
+    btn.onclick = close;
+    addEventListener("keydown", esc);
+    btn.focus();
+  }
+
   /* ---------------- estado del taller e inventario (hojas "Taller" e "Inventario") ---------------- */
   const taller = { estado: "Funcionando", recibe: true, desde: null, mensaje: "" };
   const matAgotado = (k) => C.materiales[k].colores.every((c) => c.agotado);
@@ -3171,6 +4188,8 @@
     if (Object.keys(filas).length) state.pieceColors = {};
     renderMaterials();
     renderTallerAviso();
+    if (taller.estado === "Vacaciones") pantallaPixel("vacaciones");
+    else if (taller.estado === "En mantenimiento") pantallaPixel("mantenimiento");
   }
 
   // aviso arriba de la portada y junto al botón de pedir
