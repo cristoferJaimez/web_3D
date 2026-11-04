@@ -1,8 +1,8 @@
 {
-  "actualizado": "2026-11-03",
+  "actualizado": "2026-11-04",
   "trm": {
-    "valor": 3182.99,
-    "fecha": "2026-10-31",
+    "valor": 3235.59,
+    "fecha": "2026-11-04",
     "fuente": "datos.gov.co"
   },
   "energia": {
@@ -11,22 +11,22 @@
   },
   "materiales": {
     "PLA": {
-      "precio_kg": 84684,
+      "precio_kg": 85662,
       "fuente": "base + TRM",
       "muestras": 0
     },
     "PETG": {
-      "precio_kg": 94647,
+      "precio_kg": 95740,
       "fuente": "base + TRM",
       "muestras": 0
     },
     "TPU": {
-      "precio_kg": 129516,
+      "precio_kg": 131012,
       "fuente": "base + TRM",
       "muestras": 0
     },
     "ASA": {
-      "precio_kg": 114572,
+      "precio_kg": 115895,
       "fuente": "base + TRM",
       "muestras": 0
     }
