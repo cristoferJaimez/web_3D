@@ -1,12 +1,12 @@
 {
-  "actualizado": "2026-11-26",
+  "actualizado": "2026-11-27",
   "trm": {
     "valor": 3630.89,
     "fecha": "2026-11-26",
     "fuente": "datos.gov.co"
   },
   "energia": {
-    "precio_kwh": 880,
+    "precio_kwh": 881,
     "fuente": "tarifa 2026-08-01 + 6%/año"
   },
   "materiales": {
